@@ -1,0 +1,35 @@
+Package: mnirs
+Title: Muscle Near-Infrared Spectroscopy Processing and Analysis
+Version: 0.6.0
+Authors@R: 
+    person("Jem", "Arnold", , "jem.arnold@gmail.com", role = c("aut", "cre", "cph"),
+           comment = c(ORCID = "0000-0003-3908-9447"))
+Description: Read, process, and analyse data from muscle near-infrared
+    spectroscopy (mNIRS) devices. Import raw data from .csv or .xls(x)
+    files and return time-series data and metadata. Includes standardised
+    methods for cleaning, filtering, and pre-processing mNIRS data for
+    subsequent analysis. Also includes a custom plot theme and colour
+    palette. Intended for mNIRS researchers and practitioners in exercise
+    physiology, sports science, and clinical rehabilitation with minimal
+    coding experience required.
+License: MIT + file LICENSE
+URL: https://jemarnold.github.io/mnirs/,
+        https://github.com/jemarnold/mnirs
+BugReports: https://github.com/jemarnold/mnirs/issues
+Depends: R (>= 4.1)
+Imports: cli, data.table, lifecycle, readxl, rlang, stats, tibble,
+        tidyselect
+Suggests: dplyr, ggplot2, knitr, patchwork, quarto, scales, signal,
+        testthat (>= 3.0.0), zoo
+VignetteBuilder: quarto
+Config/Needs/website: quarto, tidyverse
+Config/testthat/edition: 3
+Encoding: UTF-8
+RoxygenNote: 7.3.3
+NeedsCompilation: no
+Packaged: 2026-03-25 05:59:41 UTC; Jem
+Author: Jem Arnold [aut, cre, cph] (ORCID:
+    <https://orcid.org/0000-0003-3908-9447>)
+Maintainer: Jem Arnold <jem.arnold@gmail.com>
+Repository: CRAN
+Date/Publication: 2026-03-30 08:40:02 UTC

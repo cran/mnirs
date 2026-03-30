@@ -1,0 +1,683 @@
+---
+title: "Reading and Cleaning Data with {mnirs}"
+vignette: >
+    %\VignetteIndexEntry{Reading and Cleaning Data with {mnirs}}
+    %\VignetteEngine{quarto::html}
+    %\VignetteEncoding{UTF-8}
+format:
+    html:
+        embed-resources: true
+        toc: true
+knitr:
+    opts_chunk:
+        collapse: true
+        comment: '#>'
+        dpi: 300
+        out.width: "100%"
+        fig.align: "centre"
+        eval: requireNamespace("ggplot2", quietly = TRUE)
+---
+
+# Introduction
+
+With modern wearable **muscle near-infrared spectroscopy (mNIRS)** devices it is growing ever easier to collect local muscle oxygenation data during dynamic activities. 
+
+The real challenge comes with deciding how to clean, filter, process, and eventually interpret those data.
+
+The `{mnirs}` package aims to provide standardised, reproducible methods for reading, processing, and analysing mNIRS data. The goal is to help practitioners detect meaningful signal from noise, and improve our confidence in interpreting and applying information to the clients we work with.
+
+In this vignette we will demonstrate how to:
+
+* 📂 Read data files exported from commercially available wearable NIRS devices, and import NIRS channels into a standard data frame format with metadata, ready for further processing.
+
+* 📊 Plot and visualise data frames of class *`"mnirs"`*.
+
+* 🔍 Retrieve metadata stored with data frames of class *`"mnirs"`* to avoid repetitively specifying which channels to process.
+
+* 🧹 Detect and replace local outliers, invalid values, and interpolate across missing data.
+
+* ⏱️ Resample data to a higher or lower sample rate, to correct irregular sampling periods or match the frequency of other data sources.
+
+* 📈️ Apply digital filtering to optimise signal-to-noise ratio for the responses observed in our data.
+
+* ⚖️ Shift and rescale across multiple NIRS channels, to normalise signal dynamic range while preserving absolute or relative scaling between muscle sites and NIRS channels.
+
+* 🔀 Demonstrate a complete data wrangling process using pipe-friendly functions.
+
+* 🧮 Detect and extract intervals for further analysis.
+
+
+*`mnirs`* is currently [![Lifecycle: experimental](https://img.shields.io/badge/lifecycle-experimental-orange.svg)](https://lifecycle.r-lib.org/articles/stages.html#experimental). Functionality may change! Stay updated on development and follow releases at [github.com/jemarnold/mnirs](https://github.com/jemarnold/mnirs).
+
+*`mnirs`* is designed to process NIRS data, but it can be used to read, clean, and process other time series data which require many of the same processing steps. Enjoy!
+
+
+# 📂 Read data from file
+
+We will read an example data file with two NIRS channels from an incremental ramp cycling assessment recorded with *Moxy* muscle oxygen monitor.
+
+First, install and load the *`mnirs`* package and other required libraries.
+
+*`mnirs`* can be installed with `install.packages("mnirs")`.
+
+```{r}
+#| label: setup
+#| warning: false
+
+# pak::pak("jemarnold/mnirs") ## install development version
+library(ggplot2) ## load for plotting
+library(mnirs)
+```
+
+The first function called will often be `read_mnirs()`. This is used to read data from *.csv* or *.xls(x)* files exported from common wearable NIRS devices.
+
+Exported data files will often have multiple rows of file header metadata before the data table with NIRS recordings begins. `read_mnirs` can extract and return this data table along with the file metadata for further processing and analysis.
+
+See `read_mnirs()` for more details.
+
+
+## `read_mnirs()`
+
+* `file_path`
+
+    Specify the location of the data file, including file extension. e.g. `"./my_file.xlsx"` or `"C:/myfolder/my_file.csv"`.
+
+::: {.callout-note}
+### Example data files
+
+A few example data files are included in the *`mnirs`* package. File paths can be accessed with `example_mnirs()`
+:::
+
+* `nirs_channels`
+    
+    Multiple *NIRS* channels can be specified from the data file as a vector of names. If no `nirs_channels` are specified, `read_mnirs()` will attempt to recognise the NIRS device file format, and return the full data frame with all detected columns. This can be useful for file exploration, to find the target channel names. However, best practice is to specify the desired `nirs_channels` explicitly
+
+* `time_channel`
+
+    A *time* or *sample* channel name from the data table can be specified. If left blank, the function will attempt to identify the time column automatically, however, best practice is to specify the `time_channel` explicitly.
+
+* `event_channel`
+
+    Optionally, A channel can be specified which indicates character *event* labels or integer *lap* values in the data table.\
+\
+These channel names are used to detect the data table within the file, and must match exactly with text strings in the file on the same row. We can rename these channels when reading data by specifying a named character vector: 
+
+```{r}
+nirs_channels = c(renamed1 = "original_name1", 
+                  renamed2 = "original_name2")
+```
+
+* `sample_rate`
+
+    The sample rate (in Hz) of the exported data can either be specified explicitly, or it will be estimated from `time_channel`.\
+\
+Automatic detection usually works well unless there is irregular sampling, or the `time_channel` is a count of samples rather than a time value. For example, *Oxysoft* exports a column of sample numbers rather than time values. For *Ozysoft* files specifically, the function will recognise and read the correct sample rate from the file metadata. However, in most cases `sample_rate` should be defined explicitly if known.
+
+* `add_timestamp`
+
+    `FALSE` by default; if `time_channel` is in date-time (POSIXct) format (e.g.; *hh:mm:ss*), by default it will be converted to numeric time in seconds.\
+\
+If `add_timestamp = TRUE`, the date-time start time value in `time_channel` or in the file metadata will be extracted and a `"timestamp"` column will be added to the returned data frame. This can be useful for synchronising devices based on system time.
+
+* `zero_time`
+
+    `FALSE` by default; if `time_channel` values start at a non-zero value, `zero_time = TRUE` will re-calculate time starting from zero. If `time_channel` was converted from date-time format, it will always be re-calculated from zero regardless of this option.
+
+* `keep_all`
+
+    `FALSE` by default; only the channels explicitly specified will be returned in a data frame. `keep_all = TRUE` will return all columns detected from the data table in the file.\
+\
+Blank/empty columns will be omitted. Duplicate column names will be repaired by appending a suffix `"_n"`, and empty column names will be renamed as `col_n`; where `n` is equal to the column number in the data file. Renamed columns should be checked to confirm correct naming if duplicates are present.
+
+* `verbose`
+
+    `TRUE` by default; this and most *`mnirs`* functions will return warnings and informational messages which are useful for troubleshooting and data validation. This option can be used to silence those messages. *`mnirs`* messages can be silenced globally for a session by setting `options(mnirs.verbose = FALSE)`.
+
+```{r}
+## {mnirs} includes sample files from a few NIRS devices
+example_mnirs()
+
+## partial matching will error if matches multiple
+try(example_mnirs("moxy"))
+
+data_raw <- read_mnirs(
+    file_path = example_mnirs("moxy_ramp"), ## call an example data file
+    nirs_channels = c(
+        smo2_left = "SmO2 Live",            ## identify and rename channels
+        smo2_right = "SmO2 Live(2)"
+    ),
+    time_channel = c(time = "hh:mm:ss"),    ## date-time format will be converted to numeric
+    event_channel = NULL,                   ## leave blank if unused
+    sample_rate = NULL,                     ## if blank, will be estimated from time_channel
+    add_timestamp = FALSE,                  ## omit a date-time timestamp column
+    zero_time = TRUE,                       ## recalculate time values from zero
+    keep_all = FALSE,                       ## return only the specified data channels
+    verbose = TRUE                          ## show warnings & messages
+)
+
+## Note the above info message that sample_rate was estimated correctly at 2 Hz ☝
+## ignore the warnings about irregular sampling for now, we will resample later
+
+data_raw
+```
+
+
+# 📊 Plot *`mnirs`* data
+
+*`mnirs`* data can be easily viewed by calling `plot()`. This generic plot function uses `{ggplot2}` and will work on data frames generated or read by *`mnirs`* functions where the metadata contain `class = *"mnirs"*`.
+
+## `plot.mnirs`
+
+* `data`
+
+    This function takes in a data frame of class *`mnirs`* and returns a formatted `{ggplot2}` plot.
+
+* `time_labels`
+
+    `FALSE` by default; time values on the x-axis will be plotted as numeric by default. `time_labels = TRUE` will instead plot time values as `h:mm:ss` format.
+
+* `n.breaks`
+
+    Defines the number of breaks plotted on the x-axis, passed to the `{ggplot2}` settings.
+
+* `na.omit`
+
+    `FALSE` by default; missing data (`NA`s) will be plotted as gaps in the time-series data. If `na.omit = TRUE`, `NA`s will be omitted from the plotted data, effectively plotting across these gaps, making them less visible, but making the general data trend easier to see if there are lots of missing values.
+
+```{r}
+## note the `time_labels` plot argument to display time values as `h:mm:ss`
+plot(
+    data_raw,
+    time_labels = TRUE,
+    n.breaks = 5,
+    na.omit = FALSE
+)
+```
+
+*`mnirs`* includes a custom `*ggplot2*` theme and colour palette available with `theme_mnirs()` and `palette_mnirs()`. See those documentation references for more details.
+
+
+# 🔍 Metadata stored in *`mnirs`* data frames
+
+Data frames generated or read by *`mnirs`* functions will return `class = *"mnirs"*` and contain metadata, which can be retrieved with `attributes(data)`. 
+
+Instead of re-defining values like our channel names or sample rate, certain *`mnirs`* functions can automatically retrieve them from metadata. They can always be overwritten manually in subsequent functions, or by using a helper function `create_mnirs_data()`.
+
+See `create_mnirs_data()` for more details about metadata.
+
+```{r}
+## view metadata (omitting item two, a list of row numbers)
+attributes(data_raw)[-2]
+```
+
+
+# 🧹 Replace local outliers, invalid values, and missing values
+
+We can see some data issues in the plot above, so let's clean those with a single wrangling function `replace_mnirs()`, to prepare our data for digital filtering and smoothing.
+
+*`mnirs`* tries to include basic functions which work on vector data, and convenience wrappers which combine functionality and can be used on multiple channels in a data frame at once.
+
+Let's explain the functionality of this data-wide function, and for more details about the vector-specific functions see `replace_mnirs()`.
+
+
+## `replace_mnirs()`
+
+* `data`
+
+    Data-wide functions take in a data frame, apply processing to all channels specified explicity or implicitly from *`mnirs`* metadata, then return the processed data frame. *`mnirs`* metadata will be passed to and from this function.\
+\
+*`mnirs`* functions are also pipe-friendly for Base R 4.1+ (`|>`) or `{magrittr}` (`%>%`) pipes to chain operations together (see below).
+
+* `nirs_channels`
+
+    Specify which column names in `data` will be processed, i.e. the response variables. If not specified, these channels will be retrieved from *`mnirs`* metadata. Channels in the data but not explicitly specified will be passed through unprocessed to the returned data frame.
+
+* `time_channels`
+
+    The time channel can be specified, i.e. the predictor variable, or retrieved from *`mnirs`* metadata.
+
+* `invalid_values`, `invalid_above`, or `invalid_below`
+
+    Specific invalid values can be replaced, e.g. if a NIRS device exports `0`, `100`, or some other fixed value when signal recording is in error. If spikes or drops are present in the data, these can be replaced by specifying values above or below which to consider invalid. If left as `NULL`, no values will be replaced.
+
+* `outlier_cutoff`
+
+    Local outliers can be detected using a cutoff calculated from the local median value. A default value of `3` is recommended and correspond's to Pearson's rule (i.e., ± 3 SD about the local median). If left as `NULL`, no outliers will be replaced.
+
+* `width` or `span`
+
+    Local outlier detection and median interpolation use a rolling local window specified by one of either `width` or `span`. `width` defines a number of samples centred around the local index being evaluated (`idx`), whereas `span` defines a range of time in units of `time_channel`.
+
+* `method`
+
+    Missing data (`NA`), invalid values, and local outliers specified above can be replaced via interpolation or fill methods; either `"linear"` interpolation (the default), fill with local `"median"`, or `"locf"` (*"last observation carried forward"*).\
+\
+`NA`s can be passed through to the returned data frame with `method = "none"`. However, subsequent processing & analysis steps may return errors when `NA`s are present. Therefore, it is good practice to deal with missing data early during data processing.
+
+* `verbose`
+
+    As above, an option to toggle warnings and info messages.
+
+```{r}
+data_cleaned <- replace_mnirs(
+    data_raw,           ## blank channels will be retrieved from metadata
+    invalid_values = 0, ## known invalid values in the data
+    invalid_above = 90, ## remove data spikes above 90
+    outlier_cutoff = 3, ## recommended default value
+    width = 10,         ## window to detect and replace outliers/missing values
+    method = "linear"   ## linear interpolation over `NA`s
+)
+
+plot(data_cleaned, time_labels = TRUE)
+```
+
+That cleaned up all the obvious data issues.
+
+
+# ⏱️ Resample data
+
+Say we have NIRS data recorded at 25 Hz, but we are only interested in exercise responses over a time span of 5-minutes, and our other outcome measure heart rate data are only recorded at 1 Hz anyway. It may be easier and faster to work with our NIRS data down-sampled from 25 to 1 Hz.
+
+Alternatively, if we have something like high-frequency EMG data, we may want to up-sample our NIRS data to match samples for easier synchronisation and analysis (*although, we should be cautious with up-sampling as this can artificially inflate statistical confidence with subsequent analysis or modelling methods*).
+
+
+## `resample_mnirs()`
+
+* `data`
+
+    This function takes in a data frame, applies processing to all channels specified, then returns the processed data frame. *`mnirs`* metadata will be passed to and from this function.
+
+* `time_channel` & `sample_rate`
+
+    If the data contain *`mnirs`* metadata, these channels will be detected automatically. Or they can be specified explicitly.
+
+* `resample_rate`
+
+    Resampling is specified as the desired number of samples per second (Hz). The default `resample_rate` will resample back to the existing `sample_rate` of the data. This can be useful to accomodate for irregular sampling with unequal time values. Linear interpolation is used to resample `time_channel` to round values of the `sample_rate`.
+
+```{r}
+data_resampled <- resample_mnirs(
+    data_cleaned,      ## blank channels will be retrieved from metadata
+    resample_rate = 2, ## blank by default will resample to `sample_rate`
+    method = "linear"  ## linear interpolation across resampled indices
+)
+
+## note the altered "time" values from the original data frame 👇
+data_resampled
+```
+
+
+::: {.callout-note}
+## Use `resample_mnirs()` to smooth over irregular or skipped samples
+
+If we see a warning from `read_mnirs()` about duplicated or irregular samples like we saw above, we can use `resample_mnirs()` to restore `time_channel` to a regular sample rate and interpolate across skipped samples.
+
+Note: if we perform both of these steps in a piped function call, we will still see the warning appear about irregular sampling at the end of the pipe. This warning is returned by `read_mnirs()`. But viewing the data frame can confirm that `resample_mnirs()` has resolved the issue.
+:::
+
+
+# 📈 Digital filtering
+
+To improve the signal-to-noise ratio in our dataset without losing information, we should apply digital filtering to smooth the data.
+
+
+
+## Choosing a digital filter
+
+There are a few digital filtering methods available in *`mnirs`*. Which option is best for *you* will depend in large part on the sample rate of your data and the frequency of the response signal/phenomena you are interested in observing.
+
+Choosing filter parameters is an important processing step to improve signal-to-noise ratio and enhance our subsequent interpretations. Over-filtering the data can introduce data artefacts which can negatively influence signal analysis and interpretations, just as much as trying to analyse overly-noisy raw data.
+
+It is perfectly valid to choose a digital filter by iteratively testing filter parameters until the signal or response of interest appears to be visually optimised with minimal data artefacts, to your satisfaction.
+
+We will discuss the process of choosing a digital filter more in depth in another article coming soon.
+
+
+## `filter_mnirs()`
+
+* `data`
+
+    This function takes in a data frame, applies processing to all channels specified, then returns the processed data frame. *`mnirs`* metadata will be passed to and from this function.
+
+* `nirs_channels`, `time_channel`, & `sample_rate`
+
+    If the data contain *`mnirs`* metadata, these channels will be detected automatically. Or they can be specified explicitly.
+
+* `na.rm`
+
+    This important argument is left as `FALSE` by default. `filter_mnirs()` will return an error if any missing data (`NA`) are detected in the response variables (`nirs_channels`). Setting `na.rm = TRUE` will ignore these `NA`s and pass them through to the returned data frame, but this must be opted into explicitly in this function and elsewhere.
+
+
+### Smoothing-spline
+
+* `method = "smooth_spline"`
+
+    The default non-parametric cubic smoothing spline is often a good first filtering option when exploring the data, and works well over longer time spans. For more rapid and repeated responses, a smoothing-spline may not work as well.
+
+* `spar`
+
+    The smoothing parameter of the cubic spline will be determined automatically by default, or can be specified explicitly. See `stats::smooth.spline()`
+
+
+### Butterworth digital filter
+
+* `method = "butterworth"`
+
+    A Butterworth low-pass digital filter (specified by `type = "low"`) is probably the most common method used in mNIRS research (whether appropriately or not). For certain applications such as identifying a signal with a known frequency (e.g. cycling/running cadence or heart rate), a pass-band or a different filter type may be better suited.
+
+* `order`
+
+    The filter order number, specifying the number of passes the filter performs over the data. The default `order = 2` will often noticably improve the filter over a single pass, however higher orders above ~`4` can begin to introduce artefacts, particularly at sharp transition points.
+
+* `W` or `fc`
+
+    The cutoff frequency can be specified either as `W`; a fraction (between `[0, 1]`) of the [*Nyquist frequency*](https://www.youtube.com/watch?v=IZJQXlbm2dU), which is equal to half of the `sample_rate` of the data. Or as `fc`; the cutoff frequency in Hz, where this absolute frequency should still be between 0 Hz and the Nyquist frequency.
+    
+* `type`
+
+    The filter type is specified as either `c("low", "high", "stop", "pass")`.
+
+
+For filtering vector data and more details about Butterworth filter parameters, see `filter_butter()`.
+
+
+### Moving average
+
+* `method = "moving_average"`
+
+    The simplest smoothing method is a moving average filter applied over a specified number of samples or timespan. Commonly, this might be a 5- or 15-second centred moving average.
+
+* `width` or `span`
+
+    Moving average filtering occurs within a rolling local window specified by one of either `width` or `span`. `width` defines a number of samples centred around the local index being evaluated (`idx`), whereas `span` defines a range of time in units of `time_channel`.
+
+For filtering vector data and more details about the moving average filter, see `filter_ma()`
+
+
+## Apply the filter
+
+Let's try a *Butterworth low-pass* filter, and we'll specify some empirically chosen filter parameters for these data. See `filter_mnirs()` for further details on each of these filtering methods and their respective parameters.
+
+
+```{r}
+data_filtered <- filter_mnirs(
+    data_resampled,         ## blank channels will be retrieved from metadata
+    method = "butterworth", ## Butterworth digital filter is a common choice
+    order = 2,              ## filter order number
+    W = 0.02,               ## filter fractional critical frequency `[0, 1]`
+    type = "low",           ## specify a "low-pass" filter
+    na.rm = TRUE            ## explicitly ignore NAs
+)
+
+## we will add the non-filtered data back to the plot to compare
+plot(data_filtered, time_labels = TRUE) +
+    geom_line(
+        data = data_cleaned, 
+        aes(y = smo2_left, colour = "smo2_left"), alpha = 0.4
+    ) +
+    geom_line(
+        data = data_cleaned, 
+        aes(y = smo2_right, colour = "smo2_right"), alpha = 0.4
+    )
+```
+
+
+That did a nice job reducing the high-frequency noise in our data, while preserving the sharp edges, such as the rapid reoxygenation after maximal exercise.
+
+# ⚖️ Shift and rescale data
+
+NIRS values are not measured on an absolute scale (arguably not even percent (%) saturation/SmO<sub>2</sub>). Therefore, we may need to adjust or calibrate our data to normalise NIRS signal values between muscle sites, individuals, trials, etc. depending on our intended comparison.
+
+For example, we may want to set our mean baseline value to zero for all NIRS signals at the start of a recording. Or we may want to compare signal kinetics (the rate of change or time course of a response) after rescaling signal amplitudes to a common dynamic range.
+
+These functions allow us to either shift NIRS values up or down while preserving the dynamic range (the absolute amplitude from minimum to maximum values) of our NIRS channels, or rescale the data to a new dynamic range with larger or smaller amplitude.
+
+We can group NIRS channels together to preserve the absolute and relative scaling among certain channels, and modify that scaling between other groups of channels.
+
+
+
+## `shift_mnirs()`
+
+* `data`
+
+    This function takes in a data frame, applies processing to all channels specified, then returns the processed data frame. *`mnirs`* metadata will be passed to and from this function.
+
+* `nirs_channels`
+
+    Channels should be grouped by providing a list (e.g. `list(c(A, B), c(C))`) where each group will be shifted to a common scale, and separate scales between groups. The relative scaling between channels will be preserved within each group, but lost between groups.\
+\
+`nirs_channels` should be specified explicitly to ensure the intended grouping structure is returned. The default *`mnirs`* metadata will group all NIRS channels together.
+
+* `time_channel`
+
+    If the data contain *`mnirs`* metadata, this channels will be detected automatically. Or it can be specified explicitly
+
+* `to` or `by`
+
+    The shift amplitude can be specified by either shifting signals `to` a new value, or shifting signals `by` a fixed amplitude, given in units of the NIRS signals.
+
+* `width` or `span`
+
+    Shifting can be performed on the mean value within a window specified by one of either `width` or `span`. `width` defines a number of samples centred around the local index being evaluated (`idx`), whereas `span` defines a range of time in units of `time_channel`.\
+\
+e.g. `width = 1` will shift from the single minimum sample, whereas `span = 1` would shift from the minimum mean value of all samples within one second.
+
+* `position`
+
+    Specifies how we want to shift the data; either shifting the *"min"*, *"max"*, or *"first"* sample(s).
+
+
+For this data set, we want to shift each NIRS channel so that the mean of the 2-minute baseline is equal to zero, which would then give us a change in deoxygenation from baseline during the incremental cycling protocol.
+
+::: {.callout-note}
+## `{tidyverse}`-style channel name specification
+
+This is a good time to note that here and in most *`mnirs`* functions, data channels can be specified using `{tidyverse}`-style naming; Data frame column names can be specified either with quotes as a character string (`"smo2"`), or as a direct symbol (`smo2`).
+
+`{tidyselect}` support functions such as `starts_with()`, `matches()` can also be used.
+:::
+
+```{r}
+data_shifted <- shift_mnirs(
+    data_filtered,     ## un-grouped nirs channels to shift separately 
+    nirs_channels = list(smo2_left, smo2_right), 
+    to = 0,            ## NIRS values will be shifted to zero
+    span = 120,        ## shift the *first* 120 sec of data to zero
+    position = "first"
+)
+
+plot(data_shifted, time_labels = TRUE) +
+    geom_hline(yintercept = 0, linetype = "dotted")
+```
+
+Before shifting, the minimum (end of exercise) values for *smo2_left* and *smo2_right* were similar, but the starting baseline values were different. 
+
+Whereas when we shift both baseline values to zero, we can see that the *smo2_left* signal has a smaller deoxygenation amplitude compared to the *smo2_right* signal, and a (slightly) greater hyperaemic reoxygenation peak.
+
+We have to consider how our assumptions and processing decisions will influence our interpretations; by shifting both starting values, we are normalising for, and implicitly assuming that the baseline represents the same starting condition for the tissues in both legs.
+
+This may or may not be an appropriate assumption for your research question; for example, this may be appropriate when we are more interested in the relative change (delta) in each leg during an intervention or exposure (often referred to as `"∇SmO2"`), but not if we were interested in asymmetries that could influence SmO<sub>2</sub> at rest.
+
+
+
+## `rescale_mnirs()`
+
+We may also want to rescale our data to a new dynamic range, changing the units to a new amplitude.
+
+* `data`
+
+    This function takes in a data frame, applies processing to all channels specified, then returns the processed data frame. *`mnirs`* metadata will be passed to and from this function.
+
+* `nirs_channels`
+
+    Channels should be grouped by providing a list (e.g. `list(c(A, B), c(C))`) where each group will be rescaled to a common range, and separate ranges between groups. The relative scaling between channels will be preserved within each group, but lost between groups.\
+\
+`nirs_channels` should be specified explicitly to ensure the intended grouping structure is returned. The default *`mnirs`* metadata will group all NIRS channels together.
+
+* `range`
+
+    Specifies the new dynamic range in the form `c(min, max)`. For example, if we want to calibrate each NIRS signal to their own observed 'functional range' during exercise, we could rescale them to 0-100%. 
+
+```{r}
+data_rescaled <- rescale_mnirs(
+    data_filtered,    ## un-grouped nirs channels to rescale separately 
+    nirs_channels = list(smo2_left, smo2_right), 
+    range = c(0, 100) ## rescale to a 0-100% functional exercise range
+)
+
+plot(data_rescaled, time_labels = TRUE) +
+    geom_hline(yintercept = c(0, 100), linetype = "dotted")
+```
+
+Here, our assumption is that during a maximal exercise task, the minimum and maximum values represent the functional capacity of each tissue volume being observed. So we rescale the functional dynamic range in each leg.
+
+By normalising this way, we might lose meaningful differences captured by the different amplitudes between *smo2_left* and *smo2_right*, but we might be more interested in the trend or time course of each response.
+
+Our interpretation may be that *smo2_right* appears to start at a slightly higher percent of its functional range, deoxygenates faster toward a minimum, and reaches a quasi-plateau near maximal exercise. While *smo2_left* deoxygenates slightly slower and continues to deoxygenate until maximal task tolerance. 
+
+Additionally, the left leg reoxygenates slightly faster than right during recovery. This might, for example, indicate exercise capacity differences between the limbs (although these differences are marginal and only discussed as representative for influence on interpretations).
+
+
+
+# 🔀 Pipe-friendly functions
+
+Most *`mnirs`* functions can be piped together using Base R 4.1+ (`|>`) or `{magrittr}` (`%>%`). The entire pre-processing stage can easily be performed in a sequential pipe.
+
+To demonstrate this, we'll read a different example file recorded with *Train.Red FYER* muscle oxygen sensor and pipe it through each processing stage straight to a plot.
+
+This is also a good time to demonstrate how to use the global `mnirs.verbose` argument to silence all warning & information messages, for example when dealing with a familiar dataset. We recommend leaving `verbose = TRUE` by default whenever reading and exploring a new file.
+
+```{r}
+options(mnirs.verbose = FALSE)
+
+nirs_data <- read_mnirs(
+    example_mnirs("train.red"),
+    nirs_channels = c(
+        smo2_left = "SmO2 unfiltered",
+        smo2_right = "SmO2 unfiltered"
+    ),
+    time_channel = c(time = "Timestamp (seconds passed)"),
+    zero_time = TRUE
+) |>
+    resample_mnirs() |> ## default settings will resample to the same `sample_rate`
+    replace_mnirs(
+        invalid_above = 73,
+        outlier_cutoff = 3,
+        span = 7
+    ) |>
+    filter_mnirs(
+        method = "butterworth",
+        order = 2,
+        W = 0.02,
+        na.rm = TRUE
+    ) |>
+    shift_mnirs(
+        nirs_channels = list(smo2_left, smo2_right), ## 👈 channels grouped separately
+        to = 0,
+        span = 60,
+        position = "first"
+    ) |>
+    rescale_mnirs(
+        nirs_channels = list(c(smo2_left, smo2_right)), ## 👈 channels grouped together
+        range = c(0, 100)
+    )
+
+plot(nirs_data, time_labels = TRUE)
+```
+
+We have two exercise intervals in this data set. Let's demonstrate some of the common analysis methods currently available with *`mnirs`*.
+
+# 🧮 Interval extraction
+
+After the NIRS signal has been cleaned and filtered, it should be ready for further processing and analysis. 
+
+*`mnirs`* is under development to include functionality for processing discrete intervals and events, e.g. reoxygenation kinetics, slope calculations for post-occlusion microvascular responsiveness, and critical oxygenation breakpoints.
+
+
+
+## `extract_intervals()`
+
+Often we will need to locate and extract smaller intervals from a NIRS recording, for further processing and analysis. For example, if we want to extract the last three minutes from repeated exercise trials.
+
+We may have marked event labels or have incremental lap numbers in the specified `event_channel`, or we may simply have to manually specify the event markers by `time_channel` value or row number in the data frame. See `extract_intervals()` for more details.
+
+* `data`
+
+    This function takes in a data frame, applies processing to all channels specified, then returns a list of processed data frames. *`mnirs`* metadata will be passed to and from this function.
+
+* `nirs_channels`
+
+    If returning a list of *"distinct"* intervals (see `event_groups` below), `nirs_channels` does not have to be specified, as no channels are processed.\
+\
+Only when *"ensemble"*-averaging, `nirs_channels` should be specified by providing a list of column names (e.g. `list(c(A, B), c(A))`), where each list item specifies the channels to be ensemble-averaged within the respective group (ensemble-groups are specified by `event_groups` below), in the order in which they are returned. The default *`mnirs`* metadata will ensemble-average all `nirs_channels`.
+
+* `time_channel`, `event_channel`, & `sample_rate`
+
+    If the data contain *`mnirs`* metadata, these channels will be detected automatically. Or they can be specified explicitly.
+
+* `start` & `end`
+
+    Interval boundaries are specified using helper functions: `by_time()` for `time_channel` values; `by_sample()` for sample indices (row numbers); `by_label()` for `event_channel` labels; or `by_lap()` for `event_channel` lap integers. Provide both `start` and `end` to define precise intervals, or provide `start` alone with `span` to extract windows around events. Multiple values can be passed to extract multiple intervals.
+
+* `event_groups`
+
+    Events can be extracted and returned as a list of `"distinct"` intervals, or `"ensemble"`-averaged into a single data frame. Custom grouping structure for ensemble-averaging can be specified by event number, in order of appearance within the original data.\
+\
+e.g. `event_groups = list(c(1, 2), c(3, 4))` would return a list of two intervals, each ensemble-averaged from the respective events, in sequential order from the original data.
+
+* `span`
+
+    When only `start` (or `end`) is provided, `span` specifies a time window in units of `time_channel` as `c(before, after)`, where positive values indicate time after the event and negative values indicate time before. When both `start` and `end` are provided, `span` shifts boundaries additively: `span[1]` adjusts starts, `span[2]` adjusts ends.\
+\
+A list of unique `span` vectors can be specified for each interval, otherwise a single `span` vector will be recycled to all intervals.
+
+* `zero_time`
+
+    `FALSE` by default; because `time_channel` values within each returned interval likely start at a non-zero value, `zero_time = TRUE` will re-calculate time starting from zero at the specified event. Meaning the start time (or however an event is specified) will become `0`.\
+\
+When ensemble-averaging across intervals, time will always be re-calculated from `0`, since the time values have lost their meaning.
+
+```{r}
+#| fig.width: 8
+#| fig.asp: 0.55
+
+## return each interval independently with `event_groups = "distinct"`
+distinct_list <- extract_intervals(
+    nirs_data,                  ## channels blank for "distinct" grouping
+    start = by_time(177, 904),  ## manually identified interval start times
+    end = by_time(357, 1084),   ## interval end time (start + 180 sec)
+    event_groups = "distinct",  ## return a list of data frames for each (2) event
+    span = c(0, 0),             ## no modification to the 3-min intervals
+    zero_time = FALSE           ## return original time values
+)
+
+## use `{patchwork}` package to plot intervals side by side
+library(patchwork)
+
+plot(distinct_list[[1L]]) + plot(distinct_list[[2L]])
+```
+
+```{r}
+## ensemble average both intervals with `event_groups = "ensemble"`
+ensemble_list <- extract_intervals(
+    nirs_data,                  ## channels recycled to all intervals by default
+    nirs_channels = c(smo2_left, smo2_right),
+    start = by_time(177, 904),  ## alternatively specify start times + 180 sec
+    event_groups = "ensemble",  ## ensemble-average across two intervals
+    span = c(0, 180),           ## span recycled to all intervals by default
+    zero_time = TRUE            ## re-calculate common time to start from `0`
+)
+
+plot(ensemble_list[[1L]])
+```
+
+The ensemble-averaged kinetics capture a more representative 'average' response across the two exercise intervals. Note the transient spikes in each interval are somewhat smoothed over. 
+
+Ensemble-averaging can help mitigate data dropouts and other quality issues from measurement error or biological variability. For example, ensemble-averaging is common for evaluating systemic VO<sub>2</sub> kinetics, where responses can be highly variable trial to trial.
+
+
+# Conclusion
+
+This vignette walks through the core functionality of *`mnirs`* to read, clean, and pre-process data in preparation for analysis.
+
+Future development and articles will cover standardised analysis methods, including deoxygenation & reoxygenation kinetics and critical oxygenation breakpoint analysis.
