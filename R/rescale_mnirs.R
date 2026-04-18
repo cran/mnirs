@@ -6,7 +6,7 @@
 #' @usage
 #' rescale_mnirs(
 #'   data,
-#'   nirs_channels = list(NULL),
+#'   nirs_channels = list(),
 #'   range,
 #'   verbose = TRUE
 #' )
@@ -80,7 +80,7 @@
 #' @export
 rescale_mnirs <- function(
     data,
-    nirs_channels = list(NULL),
+    nirs_channels = list(),
     range,
     verbose = TRUE
 ) {
@@ -91,13 +91,24 @@ rescale_mnirs <- function(
         verbose <- getOption("mnirs.verbose", default = TRUE)
     }
     nirs_channels <- validate_nirs_channels(
-        enquo(nirs_channels), data, verbose
+        enquo(nirs_channels), data, verbose, as_list = TRUE
     )
     validate_numeric(
         range, 2, 
         msg1 = "two-element", 
         msg2 = "between {col_blue('range[1], range[2]]')}."
     )
+
+    if (
+        verbose &&
+            is.null(attr(data, "nirs_channels")) &&
+            !is.list(nirs_channels)
+    ) {
+        cli_inform(c(
+            "!" = "{.fn rescale_mnirs} accepts {.arg nirs_channels} = \\
+            {col_blue('list()')} for channel grouping. See `?rescale_mnirs`."
+        ))
+    }
 
     ## rescale range ================================
     ## this is actually a fast modify-in-place for loop
@@ -114,9 +125,7 @@ rescale_mnirs <- function(
     }
 
     ## Metadata =================================
-    metadata$nirs_channels <- unique(
-        c(metadata$nirs_channels, unlist(nirs_channels))
-    )
+    metadata$nirs_channels <- unique(unlist(nirs_channels))
 
     return(create_mnirs_data(data, metadata))
 }

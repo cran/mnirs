@@ -1,3 +1,56 @@
+# mnirs 0.6.2
+
+## Core updates
+
+* `read_mnirs()`: 
+    
+    * Now properly parses `time_channel` as fractional unix values; i.e. timestamp (e.g. "hh:mm:ss") values are saved by Excel in all its infinite wisdom as numeric fractional Unix timestamps. Will now be properly coerced to numeric and POSIXct timestamp values can be returned.
+
+    * Timestamps should now be returned in the user's local time zone.
+
+## Core function argument changes
+
+* `resample_mnirs()`: Update default `method = "none"`. Less opinionated default to force users to explicitly opt-in to specifying either "linear" or "locf" methods to fill/interpolate across new samples. Updated package documentation.
+
+* `replace_invalid()`, `replace_outliers()`, `replace_missing()`: Remove `bypass_checks` arg intended for internal use only, to bypass redundant checks when calling from `replace_mnirs()`.
+
+## Small edits
+
+* `plot.mnirs()`: No longer coerces to long format data behind the scenes.
+
+* `plot.mnirs()`: y-axis title changed from "signal" to "mNIRS".
+
+* Create `AGENTS.md` for LLM-friendly instructions. Added to `.Rbuildignore` until better packaging solution found.
+
+* Fix lap marker inconsistency in `train.red_intervals.csv`. Updated relevant interval times in documentation.
+
+* `README.md` & *"reading-mnirs-data.qmd"* vignette updates.
+
+    * Update recommended core processing sequence: `read_mnirs()` -> `resample_mnirs()` -> `replace_mnirs()` -> ...
+
+    * Update `extract_intervals()` vignette to `train.red_intervals.csv` end-interval reoxygenation events.
+
+* Small documentation changes.
+
+
+# mnirs 0.6.1
+
+## Bug fixes
+
+* Core functions updated to accept `nirs_channel` args as a list. 
+    
+    * An info message will be displayed when a list is not required, instead of erroring.
+    
+    * Additional info messages will be displayed for `shift_mnirs()`, `rescale_mnirs()`, and `extract_intervals()` when `nirs_channels` has not been specified as a list, nor retrieved from metadata. As a reminder of the grouping requirements in those functions.
+
+* Core functions now properly update `nirs_channels` metadata when re-specified.
+    
+    * Previously, specifying `nirs_channels` in a function would only add any additional column name strings to the existing metadata rather than overwrite it. Meaning `nirs_channels` could only be removed from metadata by using `create_mnirs_data(nirs_channels = "...")`. The updated behaviour should mean channels need to be re-specified less often.
+
+* `filter_mnirs()`: Fixed an error matching `method` arguments when left blank.
+
+* *README* and *"Reading and Cleaning Data with {mnirs}"* vignette updated to fix typos and small edits.
+
 # mnirs 0.6.0
 
 ## Prepare for CRAN submission
@@ -11,14 +64,21 @@
 * `filter_mnirs()`: Method-specific arguments (e.g. `order` for `method = "butterworth"`, or `width` for `method = "moving_average"`) removed from the generic function call. Continue to be passed to the appropriate method via `...`. Documentation and info/warning/abort messages updated.
 
 * `filter_ma()` better separates effects of `partial` and `na.rm` args:
+    
     * `partial = FALSE` by default returns NA at edges where insufficient number of samples are available compared to the specified `width` or `span`.
+    
     * `partial = TRUE` calculates mean values at edges, as long as one valid non-`NA` sample is available.
+    
     * `na.rm = FALSE` by default behaves as expected with `mean(na.rm = FALSE)`, propagating any `NA`s in the local window to the calculated mean with a warning.
+        
         * **NOTE** This differs from the behaviour of `na.rm = FALSE` in `filter_butter()`, which errors if there are any internal `NA`s present. This has not been changed.
+    
     * `na.rm = TRUE` ignores `NA`s and calculates local means as long as one valid sample is present.
 
 * `plot.mnirs()`
+    
     * Add new arg: `points = TRUE` will plot points in addition to lines, as a useful quick shortcut.
+    
     * Update `na.omit` now omits non-valid `c(NA, NaN, Inf, -Inf)` values from plotting, not just `NA`.
 
 * `palette_mnirs()` can now accept either a single numeric value specifying the number of colours to return, or any number of (valid) character colour names.
@@ -44,13 +104,19 @@
 ### Updated core functions
 
 * `read_mnirs()` expands `event_channel` to work with integer *"lap"* numbers, or character event label as previous.
+    
     * Should now work on more .csv file formats; previously read errors may have occured where the file contained header rows above the data table, resulting in improper detection of columns.
+    
     * `event_channel` can now be specified as an integer `lap` column, in addition to a character column as previous.
+    
     * Other {mnirs} functions may expect `event_channel` to be either character or integer-ish.
 
 * `extract_intervals()`:
+    
     * Function arguments `start` and `end` are used to specify one or both of a start and end point to the target interval.
+    
     * Specify `start`/`end` values with helper functions `by_time()`, `by_label()`, `by_lap()`, and `by_sample()`.
+    
     * Numeric values are automatically coerced to "time" values; Explicit integer values (e.g. `2L`) are coerced to "lap"; Character strings are coerced to event "label".
 
 ### Package resources

@@ -113,19 +113,14 @@ test_that("resample_mnirs handles repeated samples", {
         value = seq(10, by = 1, len = 24)
     )
 
-    result <- resample_mnirs(data, "time", 10, 10, verbose = FALSE)
+    result <- resample_mnirs(data, "time", 10, 10, "linear", verbose = FALSE)
     expect_equal(range(result$time), floor(range(data$time) * 10) / 10)
     expect_equal(result$value[2], mean(data$value[2:3]))
     expect_equal(result$value[9], mean(data$value[10:11]))
     expect_equal(result$value[17], mean(data$value[19:20]))
 
     result <- resample_mnirs(
-        data,
-        "time",
-        10,
-        10,
-        method = "none",
-        verbose = FALSE
+        data, "time", 10, 10, "none", verbose = FALSE
     )
     expect_equal(range(result$time), floor(range(data$time) * 10) / 10)
     expect_equal(result$value[2], data$value[2])
@@ -189,25 +184,18 @@ test_that("resample_mnirs handles categorical columns", {
         category = c("A", "B", "C")
     )
 
-    result <- resample_mnirs(data, "time", 1, 4, verbose = FALSE)
+    result <- resample_mnirs(data, "time", 1, 4, "linear", verbose = FALSE)
     expect_true("category" %in% names(result))
     expect_equal(result$category[1], "A") # forward fill
     expect_equal(result$category[5], "B") # at t=1
     expect_equal(result$category[9], "C") # at t=2
 
-    result <- resample_mnirs(data, "time", 1, 0.5, verbose = FALSE)
+    result <- resample_mnirs(data, "time", 1, 0.5, "linear", verbose = FALSE)
     expect_true("category" %in% names(result))
     expect_equal(result$category[1], "A") # forward fill
     expect_equal(result$category[2], "C") # at t=2
 
-    result <- resample_mnirs(
-        data,
-        time_channel = "time",
-        sample_rate = 1,
-        resample_rate = 4,
-        method = "none",
-        verbose = FALSE
-    )
+    result <- resample_mnirs(data, "time", 1, 4, "none", verbose = FALSE)
     expect_true("category" %in% names(result))
     expect_equal(result$category[1], "A") # forward fill
     expect_equal(result$category[5], "B") # at t=1
@@ -221,11 +209,7 @@ test_that("resample_mnirs handles categorical columns", {
     data$category[c(1, 2, 5, 8, 9)] <- c("A", "B", "C", "D", "E")
 
     result <- resample_mnirs(
-        data,
-        time_channel = "time",
-        sample_rate = 2,
-        resample_rate = 1,
-        verbose = FALSE
+        data, "time", 2, 1, "linear", verbose = FALSE
     )
     expect_equal(result$category, c("A", NA, "C", "D", "E"))
 })

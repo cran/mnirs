@@ -69,8 +69,10 @@ using either:
 }
 }
 \details{
-\subsection{filtering method}{
+\subsection{filtering methods}{
 \subsection{\code{method = "smooth_spline"}}{
+
+Aliases: \code{c("smooth spline", "spline")}
 
 Applies a non-parametric cubic smoothing spline from
 \code{\link[stats:smooth.spline]{stats::smooth.spline()}}. Smoothing is defined by the parameter \code{spar},
@@ -86,9 +88,9 @@ Additional arguments (\code{...}) accepted when \code{method = "smooth_spline"}:
 \code{\link[stats:smooth.spline]{stats::smooth.spline()}}. If \code{NULL} (\emph{default}), automatically
 determined via penalised log likelihood.}
 }
-}
-
 \subsection{\code{method = "butterworth"}}{
+
+Aliases: \code{c("butter")}
 
 Applies a centred (two-pass symmetrical) Butterworth digital filter
 from \code{\link[signal:butter]{signal::butter()}} and \code{\link[signal:filtfilt]{signal::filtfilt()}}.
@@ -143,6 +145,8 @@ See \code{\link[=filter_butter]{filter_butter()}}.}
 
 \subsection{\code{method = "moving_average"}}{
 
+Aliases: \code{c("moving average", "ma")}
+
 Applies a centred (symmetrical) moving average filter in a local
 window, defined by either \code{width} as the number of samples around
 \code{idx} between \verb{[idx - floor(width/2), idx + floor(width/2)]}. Or by
@@ -160,6 +164,8 @@ where a full window of valid (non-\code{NA}) samples are available.
 If \code{TRUE}, ignores \code{NA} and allows calculation over partial windows
 at the edges of the data.}
 }
+}
+
 }
 
 }

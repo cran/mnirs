@@ -82,7 +82,7 @@
 #' @export
 shift_mnirs <- function(
     data,
-    nirs_channels = list(NULL),
+    nirs_channels = list(),
     time_channel = NULL,
     to = NULL,
     by = NULL,
@@ -106,7 +106,7 @@ shift_mnirs <- function(
         verbose <- getOption("mnirs.verbose", default = TRUE)
     }
     nirs_channels <- validate_nirs_channels(
-        enquo(nirs_channels), data, verbose = FALSE
+        enquo(nirs_channels), data, verbose, as_list = TRUE
     )
     time_channel <- validate_time_channel(enquo(time_channel), data)
     validate_numeric(to, 1, msg1 = "one-element")
@@ -117,11 +117,22 @@ shift_mnirs <- function(
             cli_inform(c("i" = "{.arg to} = {.val {to}} overrides {.arg by}."))
         }
     }
+
+    if (
+        verbose &&
+            is.null(attr(data, "nirs_channels")) &&
+            !is.list(nirs_channels)
+    ) {
+        cli_inform(c(
+            "!" = "{.fn shift_mnirs} accepts {.arg nirs_channels} = \\
+            {col_blue('list()')} for channel grouping. See `?shift_mnirs`."
+        ))
+    }
     nirs_listed <- make_list(nirs_channels)
     nirs_unlisted <- unlist(nirs_listed, use.names = FALSE)
 
     ## Metadata =================================
-    metadata$nirs_channels <- unique(c(metadata$nirs_channels, nirs_unlisted))
+    metadata$nirs_channels <- unique(nirs_unlisted)
     metadata$time_channel <- time_channel
 
     ## shift_by ====================================================

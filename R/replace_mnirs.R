@@ -155,10 +155,7 @@ replace_mnirs <- function(
 
     validate_mnirs_data(data)
     metadata <- attributes(data)
-    ## verbose = FALSE because grouping irrelevant
-    nirs_channels <- validate_nirs_channels(
-        enquo(nirs_channels), data, verbose = FALSE
-    )
+    nirs_channels <- validate_nirs_channels(enquo(nirs_channels), data, verbose)
     time_channel <- validate_time_channel(enquo(time_channel), data)
     time_vec <- data[[time_channel]]
 
@@ -204,7 +201,7 @@ replace_mnirs <- function(
     })
 
     ## Metadata =================================
-    metadata$nirs_channels <- unique(c(metadata$nirs_channels, nirs_channels))
+    metadata$nirs_channels <- unique(nirs_channels)
     metadata$time_channel <- time_channel
 
     return(create_mnirs_data(data, metadata))
@@ -217,13 +214,8 @@ replace_mnirs <- function(
 #' numeric vector and replace them with the local median value or `NA`.
 #'
 #' @param x A numeric vector of the response variable.
-#'
-#' @param t An *optional* numeric vector of the predictor variable (time or
-#'   sample number). Default is `seq_along(x)`.
-#'
-#' @param bypass_checks Logical allowing wrapper functions to bypass
-#'   redundant checks and validations.
-#'
+#' @param t An *optional* numeric vector of the predictor variable (e.g. time). 
+#'   Default is `seq_along(x)`.
 #' @inheritParams replace_mnirs
 #'
 #' @details
@@ -250,10 +242,11 @@ replace_invalid <- function(
     width = NULL,
     span = NULL,
     method = c("median", "none"),
-    bypass_checks = FALSE,
-    verbose = TRUE
+    verbose = TRUE,
+    ...
 ) {
     ## validate ===============================================
+    args <- list(...)
     if (is.null(c(invalid_values, invalid_above, invalid_below))) {
         cli_abort(c(
             "x" = "No replacement criteria specified",
@@ -261,7 +254,7 @@ replace_invalid <- function(
             {.arg invalid_above}, or {.arg invalid_below} must be specified."
         ))
     }
-    if (!bypass_checks) {
+    if (!(args$bypass_checks %||% FALSE)) {
         validate_x_t(x, t)
         if (missing(verbose)) {
             verbose <- getOption("mnirs.verbose", default = TRUE)
@@ -288,7 +281,7 @@ replace_invalid <- function(
     y[invalid_idx] <- NA_real_
 
     if (method == "median") {
-        if (!bypass_checks) {
+        if (!(args$bypass_checks %||% FALSE)) {
             validate_width_span(width, span, verbose, "for median replacement.")
         }
 
@@ -354,11 +347,12 @@ replace_outliers <- function(
     width = NULL,
     span = NULL,
     method = c("median", "none"),
-    bypass_checks = FALSE,
-    verbose = TRUE
+    verbose = TRUE,
+    ...
 ) {
     ## validate ===============================================
-    if (!bypass_checks) {
+    args <- list(...)
+    if (!(args$bypass_checks %||% FALSE)) {
         if (missing(verbose)) {
             verbose <- getOption("mnirs.verbose", default = TRUE)
         }
@@ -389,7 +383,7 @@ replace_outliers <- function(
 
 #' Replace missing values
 #'
-#' `replace_missing()` detects missing (`NA`) values in a numeric vector and 
+#' `replace_missing()` detects missing (`NA`) values in a numeric vector and
 #' replaces via interpolation.
 #'
 #' @param ... Additional arguments.
@@ -400,7 +394,7 @@ replace_outliers <- function(
 #' ## Interpolation with `replace_missing()`
 #'
 #' `method = "linear"` and `method = "locf"` use [stats::approx()] with
-#' `rule = 2`, so leading `NA`s are filled by *"nocb"* 
+#' `rule = 2`, so leading `NA`s are filled by *"nocb"*
 #' (*"next observation carried backward"*) and trailing `NA`s by *"locf"*.
 #'
 #' `method = "median"` calculates the local median of valid (non-`NA`)
@@ -416,7 +410,7 @@ replace_outliers <- function(
 #' valid sample on either side is used (equivalent to
 #' `replace_missing(x, width = 1)`).
 #'
-#' @returns `replace_missing()` returns a numeric vector the same length as 
+#' @returns `replace_missing()` returns a numeric vector the same length as
 #' `x` with missing values replaced.
 #'
 #' @rdname replace_mnirs
@@ -428,12 +422,12 @@ replace_missing <- function(
     width = NULL,
     span = NULL,
     method = c("linear", "median", "locf"),
-    bypass_checks = FALSE,
     verbose = TRUE,
     ...
 ) {
     ## validate ===============================================
-    if (!bypass_checks) {
+    args <- list(...)
+    if (!(args$bypass_checks %||% FALSE)) {
         validate_x_t(x, t)
     }
     method <- match.arg(method)
@@ -446,14 +440,14 @@ replace_missing <- function(
         y <- stats::approx(
             x = t,
             y = x,
-            xout = list(...)$xout %||% t, ## = t unless explicitly specified by hidden option
+            xout = args$xout %||% t, ## = t unless explicitly specified by hidden option
             method = method, ## c("linear", "constant")
             rule = 2, ## fill leading and trailing `NA`s
             f = 0, ## locf if method = "constant"
             ties = list("ordered", mean) ## assume ordered, take mean of ties
         )$y
     } else if (method == "median") {
-        if (!bypass_checks) {
+        if (!(args$bypass_checks %||% FALSE)) {
             if (missing(verbose)) {
                 verbose <- getOption("mnirs.verbose", default = TRUE)
             }
@@ -462,12 +456,7 @@ replace_missing <- function(
         ## median of width or span VALID values to either side of sequential NAs
         y <- x
         na_idx <- which(is.na(x))
-        window_idx <- compute_valid_neighbours(
-            x = x,
-            t = t,
-            width = width,
-            span = span
-        )
+        window_idx <- compute_valid_neighbours(x, t, width, span, verbose)
         local_medians <- compute_local_fun(x, window_idx, median, na.rm = TRUE)
         y[na_idx] <- local_medians
     }

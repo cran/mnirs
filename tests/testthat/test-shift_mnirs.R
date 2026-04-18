@@ -151,12 +151,7 @@ test_that("shift_mnirs preserves unshifted channels", {
 })
 
 test_that("shift_mnirs updates metadata correctly", {
-    data <- tibble(
-        time = 1:10,
-        ch1 = 1:10
-    )
-    attr(data, "nirs_channels") <- character(0)
-    attr(data, "time_channel") <- NULL
+    data <- tibble(time = 1:10, ch1 = 1:10, ch2 = 1:10)
 
     result <- shift_mnirs(
         data,
@@ -168,6 +163,20 @@ test_that("shift_mnirs updates metadata correctly", {
     )
 
     expect_true("ch1" %in% attr(result, "nirs_channels"))
+    expect_equal(attr(result, "time_channel"), "time")
+
+    attr(data, "time_channel") <- NULL
+
+    result <- shift_mnirs(
+        data,
+        nirs_channels = list("ch2"),
+        time_channel = "time",
+        by = 5,
+        width = 1,
+        verbose = FALSE
+    )
+
+    expect_true("ch2" %in% attr(result, "nirs_channels"))
     expect_equal(attr(result, "time_channel"), "time")
 })
 
@@ -220,6 +229,56 @@ test_that("shift_mnirs handles NA values correctly", {
     # Min of non-NA values is 2
     expect_true(is.na(result$ch1[1]))
     expect_equal(result$ch1[2:10], 0:8)
+})
+
+test_that("shift_mnirs informs when nirs_channels is not a list()", {
+    data <- tibble(time = 1:5, ch1 = 1:5)
+
+    ## fires: verbose=TRUE, no metadata, non-list channels
+    expect_message(
+        shift_mnirs(
+            data,
+            nirs_channels = "ch1",
+            time_channel = "time",
+            by = 1,
+            verbose = TRUE
+        ),
+        "list\\(\\).*channel grouping"
+    )
+
+    ## silent: verbose=FALSE
+    expect_no_message(
+        shift_mnirs(
+            data,
+            nirs_channels = "ch1",
+            time_channel = "time",
+            by = 1,
+            verbose = FALSE
+        )
+    )
+
+    ## silent: nirs_channels already a list()
+    expect_no_message(
+        shift_mnirs(
+            data,
+            nirs_channels = list("ch1"),
+            time_channel = "time",
+            by = 1,
+            verbose = TRUE
+        )
+    )
+
+    ## silent: data has nirs_channels metadata
+    attr(data, "nirs_channels") <- "ch1"
+    expect_no_message(
+        shift_mnirs(
+            data,
+            nirs_channels = "ch1",
+            time_channel = "time",
+            by = 1,
+            verbose = TRUE
+        )
+    )
 })
 
 test_that("shift_mnirs prioritises to over by", {
@@ -320,8 +379,6 @@ test_that("shift_mnirs handles multiple channel groups", {
         ch3 = c(5, 35)
     )
     nirs_channels <- list(c("ch1", "ch2"), "ch3")
-    # parse_channel_name(enquo(nirs_channels), data)
-    # validate_nirs_channels(enquo(nirs_channels), data)
     result <- shift_mnirs(data, nirs_channels, time, to = 0, width = 1)
 
     ## check grouping together: min shuold come from ch1 and ch3
@@ -399,13 +456,14 @@ test_that("shift_mnirs() works with quoted character strings", {
         time_channel = "time",
         to = 0,
         width = 5,
-        position = "first"
+        position = "first",
+        verbose = FALSE
     )
 
     expect_s3_class(result, "mnirs")
     expect_true(all(c("nirs1", "nirs2") %in% names(result)))
     expect_equal(
-        result$nirs1[1], 
+        result$nirs1[1],
         data$nirs1[1] - mean(c(data$nirs1[1:5], data$nirs2[1:5]))
     )
 })
@@ -418,7 +476,8 @@ test_that("shift_mnirs() works with bare symbol column names", {
         time_channel = time,
         to = 0,
         width = 5,
-        position = "first"
+        position = "first",
+        verbose = FALSE
     )
     expect_s3_class(result, "mnirs")
     expect_true(all(c("nirs1", "nirs2") %in% names(result)))
@@ -438,7 +497,8 @@ test_that("shift_mnirs() works with external character vector", {
         time_channel = time_col,
         to = 0,
         width = 5,
-        position = "first"
+        position = "first",
+        verbose = FALSE
     )
     expect_s3_class(result, "mnirs")
     expect_true(all(c("nirs1", "nirs2") %in% names(result)))
@@ -461,7 +521,8 @@ test_that("shift_mnirs() works with external list object", {
         time_channel = "time",
         to = 0,
         width = 5,
-        position = "first"
+        position = "first",
+        verbose = FALSE
     )
     expect_s3_class(result, "mnirs")
     first_mean <- mean(c(data$nirs1[1:5], data$nirs2[1:5]))
@@ -482,7 +543,8 @@ test_that("shift_mnirs() works with list() grouping and bare symbols", {
         time_channel = time,
         to = 0,
         width = 5,
-        position = "first"
+        position = "first",
+        verbose = FALSE
     )
     expect_s3_class(result, "mnirs")
     first_mean <- mean(c(data$nirs1[1:5], data$nirs2[1:5]))
@@ -503,7 +565,8 @@ test_that("shift_mnirs() works with list() separate groups", {
         time_channel = time,
         to = 0,
         width = 5,
-        position = "first"
+        position = "first",
+        verbose = FALSE
     )
     expect_s3_class(result, "mnirs")
     expect_equal(
@@ -524,7 +587,8 @@ test_that("shift_mnirs() works with tidyselect starts_with()", {
         time_channel = time,
         to = 0,
         width = 5,
-        position = "first"
+        position = "first",
+        verbose = FALSE
     )
     expect_s3_class(result, "mnirs")
     expect_true(all(c("nirs1", "nirs2") %in% names(result)))
@@ -559,7 +623,8 @@ test_that("shift_mnirs() works with tidyselect in list()", {
         nirs_channels = list(tidyselect::starts_with("smo2"), thb),
         time_channel = time,
         to = 0,
-        width = 5
+        width = 5,
+        verbose = FALSE
     )
     expect_s3_class(result, "mnirs")
     expect_true(all(c("smo2_left", "smo2_right", "thb") %in% names(result)))
@@ -572,7 +637,8 @@ test_that("shift_mnirs() uses metadata when channels NULL", {
         nirs_channels = NULL,
         time_channel = NULL,
         to = 0,
-        width = 5
+        width = 5,
+        verbose = FALSE
     )
     expect_s3_class(result, "mnirs")
     expect_true(all(c("nirs1", "nirs2") %in% names(result)))
@@ -586,7 +652,8 @@ test_that("shift_mnirs() errors with non-existent column name", {
             nirs_channels = nonexistent,
             time_channel = time,
             to = 0,
-            width = 5
+            width = 5,
+            verbose = FALSE
         ),
         "not detected"
     )
@@ -599,7 +666,8 @@ test_that("shift_mnirs() mixed quoted and unquoted in list()", {
         nirs_channels = list("nirs1", nirs2),
         time_channel = "time",
         to = 0,
-        width = 5
+        width = 5,
+        verbose = FALSE
     )
     expect_s3_class(result, "mnirs")
     expect_true(all(c("nirs1", "nirs2") %in% names(result)))
@@ -627,7 +695,8 @@ test_that("shift_mnirs() preserves grouping with external list", {
         "time",
         to = 0,
         width = 5,
-        position = "first"
+        position = "first",
+        verbose = FALSE
     )
 
     ## nirs1 and nirs2 grouped:  shifted by same amount
@@ -679,7 +748,8 @@ test_that("shift_mnirs works on Moxy", {
         to = 0,
         by = NULL,
         span = 0,
-        position = c("min", "max", "first")
+        position = c("min", "max", "first"),
+        verbose = FALSE
     )
 
     # plot(data) + ggplot2::ylim(0, 100) + geom_hline(yintercept = c(0, 100))
@@ -727,7 +797,8 @@ test_that("shift_mnirs(position = 'first') works on Moxy", {
         to = 0,
         by = NULL,
         span = 120,
-        position = "first"
+        position = "first",
+        verbose = FALSE
     )
 
     # plot(data) + ggplot2::ylim(0, 100)
@@ -771,7 +842,8 @@ test_that("shift_mnirs works on Train.Red", {
         to = 0,
         by = NULL,
         span = 0, ## should default to 1 sample?
-        position = "min"
+        position = "min",
+        verbose = FALSE
     )
 
     data$time[which(diff(data$time) < 0)]

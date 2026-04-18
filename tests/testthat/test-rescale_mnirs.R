@@ -119,10 +119,65 @@ test_that("rescale_mnirs returns unmodified column when values are constant", {
     expect_equal(result$B, data$B / 2)
 })
 
+test_that("rescale_mnirs informs when nirs_channels is not a list()", {
+    data <- tibble(A = c(0, 50, 100))
+
+    ## fires: verbose=TRUE, no metadata, non-list channels
+    expect_message(
+        rescale_mnirs(
+            data,
+            nirs_channels = "A",
+            range = c(0, 1),
+            verbose = TRUE
+        ),
+        "list\\(\\).*channel grouping"
+    )
+
+    ## silent: verbose=FALSE
+    expect_no_message(
+        rescale_mnirs(
+            data,
+            nirs_channels = "A",
+            range = c(0, 1),
+            verbose = FALSE
+        )
+    )
+
+    ## silent: nirs_channels already a list()
+    expect_no_message(
+        rescale_mnirs(
+            data,
+            nirs_channels = list("A"),
+            range = c(0, 1),
+            verbose = TRUE
+        )
+    )
+
+    ## silent: data has nirs_channels metadata
+    attr(data, "nirs_channels") <- "A"
+    expect_no_message(
+        rescale_mnirs(
+            data,
+            nirs_channels = "A",
+            range = c(0, 1),
+            verbose = TRUE
+        )
+    )
+})
+
 test_that("rescale_mnirs updates metadata correctly", {
     data <- tibble(A = c(50, 50, 50), B = c(0, 100, 200))
-    attr(data, "nirs_channels") <- character(0)
 
+    result <- rescale_mnirs(
+        data,
+        nirs_channels = list("A", "B"),
+        range = c(0, 100),
+        verbose = FALSE
+    )
+
+    expect_true(all(c("A", "B") %in% attr(result, "nirs_channels")))
+
+    attr(data, "nirs_channels") <- "A"
     result <- rescale_mnirs(
         data,
         nirs_channels = list("A", "B"),

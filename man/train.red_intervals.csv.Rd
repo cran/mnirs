@@ -5,7 +5,7 @@
 \alias{train.red_intervals.csv}
 \title{10 Hz Train.Red App export}
 \format{
-.csv file with header metadata and 10 columns and 12000 rows:
+.csv file with header metadata and 10 columns and 11995 rows:
 \describe{
 \item{Timestamp (seconds passed)}{Elapsed time (s).}
 \item{Lap/Event}{Lap number (numeric).}
@@ -28,8 +28,8 @@ Channel mapping for \code{\link[=read_mnirs]{read_mnirs()}}:
 \item \code{nirs_channels = c("SmO2", "SmO2 unfiltered", "O2HB unfiltered", "HHb unfiltered")}
 \item \code{time_channel = c("Timestamp (seconds passed)")}
 \item \code{event_channel = c("Lap/Event")}
-\item \code{interval_times = list(start = c(2150.09, 2865.05), end = c(2441.06, 3168.08))}
-\item \code{interval_times = list(start = c(65.94, 780.90), end = c(356.91, 1183.93))} from zero_time
+\item \code{interval_times = list(start = c(2150.09, 2872.28), end = c(2452.26, 3167.98))}
+\item \code{interval_times = list(start = c(65.94, 788.13), end = c(368.11, 1083.83))} from zero_time
 }
 }
 \source{

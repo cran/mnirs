@@ -67,34 +67,11 @@ plot.mnirs <- function(
         ggplot2::waiver()
     }
 
-    ## pivot_longer all `nirs_channels` to grouped `y` column
-    plot_data <- setNames(
-        utils::stack(x[nirs_channels]),
-        c("y", "nirs_channels")
-    )
-    ## preserve other columns, repeat to long format
-    other_cols <- setdiff(names(x), nirs_channels)
-    plot_data[other_cols] <- lapply(
-        x[other_cols], rep, times = length(nirs_channels)
-    )
-
-    ## exclude non-finite values from `y` col with all nirs_channels
-    if (na.omit) {
-        plot_data <- plot_data[is.finite(plot_data[["y"]]), ]
-    }
-
-    ## plot
-    plot <- ggplot2::ggplot(plot_data) +
-        ggplot2::aes(
-            x = .data[[time_channel]],
-            y = .data$y,
-            colour = nirs_channels
-        ) +
+    ## build base plot with axis configuration
+    plot <- ggplot2::ggplot(x) +
+        ggplot2::aes(x = .data[[time_channel]]) +
         theme_mnirs() +
-        ggplot2::labs(
-            x = x_name,
-            y = "signal"
-        ) +
+        ggplot2::labs(x = x_name, y = "mNIRS") +
         ggplot2::scale_x_continuous(
             breaks = x_breaks,
             labels = x_labels,
@@ -104,14 +81,26 @@ plot.mnirs <- function(
             breaks = y_breaks,
             expand = ggplot2::expansion(mult = 0.01)
         ) +
-        scale_colour_mnirs(name = NULL) +
-        ggplot2::guides(
-            colour = ggplot2::guide_legend(override.aes = list(linewidth = 1))
-        ) +
-        ggplot2::geom_line() + 
-        if (points) ggplot2::geom_point(size = 3)
+        scale_colour_mnirs(
+            name = NULL,
+            guide = ggplot2::guide_legend(
+                override.aes = list(linewidth = 1)
+            )
+        )
 
-    return(plot)
+    ## add one geom per channel
+    layers <- lapply(nirs_channels, function(ch) {
+        ch_data <- if (na.omit) x[is.finite(x[[ch]]), ] else x
+        ch_aes <- ggplot2::aes(y = .data[[ch]], colour = ch)
+        c(
+            list(ggplot2::geom_line(ch_aes, data = ch_data)),
+            if (points) list(ggplot2::geom_point(
+                ch_aes, data = ch_data, size = 3
+            ))
+        )
+    })
+
+    return(plot + layers)
 }
 
 

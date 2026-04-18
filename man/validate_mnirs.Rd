@@ -19,7 +19,7 @@ validate_numeric(
   range = NULL,
   inclusive = c("left", "right"),
   integer = FALSE,
-  invalid = FALSE,
+  allow_na = FALSE,
   msg1 = "",
   msg2 = ""
 )
@@ -29,7 +29,8 @@ validate_mnirs_data(data, ncol = 2L)
 validate_nirs_channels(
   nirs_channels,
   data,
-  verbose = TRUE,
+  verbose = FALSE,
+  as_list = FALSE,
   env = rlang::caller_env()
 )
 
@@ -48,7 +49,7 @@ validate_sample_rate(data, time_channel, sample_rate, verbose = TRUE)
 
 validate_width_span(width = NULL, span = NULL, verbose = TRUE, msg = "")
 
-validate_x_t(x, t, invalid = FALSE)
+validate_x_t(x, t, allow_na = FALSE)
 }
 \arguments{
 \item{x}{A numeric vector.}
@@ -66,6 +67,9 @@ exclude both endpoints.}
 integer-like values using \code{\link[rlang:is_integerish]{rlang::is_integerish()}}. Otherwise tested as a
 numeric value.}
 
+\item{allow_na}{Logical. Default is \code{FALSE}. If \code{TRUE}, allows pass through
+of \code{NA} to the returned numeric/integer vector.}
+
 \item{msg1, msg2}{A character string appended to the \code{\link[cli:cli_abort]{cli::cli_abort()}}
 message when numeric validation fails.}
 
@@ -82,6 +86,12 @@ used.
 \item{verbose}{Logical. Default is \code{TRUE}. Will display or silence (if
 \code{FALSE}) warnings and information messages helpful for troubleshooting. A
 global default can be set via \code{options(mnirs.verbose = FALSE)}.}
+
+\item{as_list}{Logical. Default is \code{FALSE}. If \code{nirs_channels} is specified
+as a list, it will be coerced to a flat character vector and an
+information message is displayed (when \code{verbose = TRUE}). If \code{TRUE},
+\code{nirs_channels} is returned as-is, i.e. as a list for callers which
+require it.}
 
 \item{time_channel}{A character string giving the name of the time or sample
 column. Must match a column name in \code{data} exactly.

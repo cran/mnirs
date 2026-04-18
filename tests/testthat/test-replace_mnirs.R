@@ -575,7 +575,8 @@ test_that("replace_mnirs outlier removal skipped when outlier_cutoff = NULL", {
     result <- replace_mnirs(
         data,
         invalid_values = c(999),
-        method = "none"
+        method = "none",
+        verbose = FALSE
     )
 
     ## Data should be unchanged except for invalid value processing
@@ -645,6 +646,22 @@ test_that("replace_mnirs updates metadata correctly", {
     expect_equal(attr(data, "nirs_channels"), c("smo2_left", "smo2_right"))
     expect_equal(attr(data, "time_channel"), "time")
     expect_equal(attr(data, "sample_rate"), 2)
+
+    ## overwrites nirs_channels
+    data <- read_mnirs(
+        file_path = example_mnirs("moxy_ramp"),
+        nirs_channels = c(smo2_left = "SmO2 Live", smo2_right = "SmO2 Live(2)"),
+        time_channel = c(time = "hh:mm:ss"),
+        verbose = FALSE
+    ) |>
+        replace_mnirs(
+            nirs_channels = "smo2_left",
+            invalid_values = c(0, 100),
+            span = 7,
+            method = "linear",
+            verbose = FALSE
+        )
+    expect_equal(attr(data, "nirs_channels"), "smo2_left")
 })
 
 test_that("replace_mnirs global verbose works", {
@@ -653,7 +670,8 @@ test_that("replace_mnirs global verbose works", {
             file_path = example_mnirs("moxy_ramp.xlsx"),
             nirs_channels = c(smo2 = "SmO2 Live"),
             time_channel = c(time = "hh:mm:ss")
-        ),
+        ) |> 
+            replace_mnirs(),
         "irregular.*detected"
     ) |>
         expect_message("Estimated.*sample_rate.*2")
@@ -667,7 +685,8 @@ test_that("replace_mnirs global verbose works", {
             file_path = example_mnirs("moxy_ramp.xlsx"),
             nirs_channels = c(smo2 = "SmO2 Live"),
             time_channel = c(time = "hh:mm:ss")
-        )
+        ) |>
+            replace_mnirs()
     )
 })
 

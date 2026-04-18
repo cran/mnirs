@@ -21,6 +21,12 @@
 #'   - If `NULL` (default), the `event_channel` metadata attribute of `data` is
 #'     used.
 #'
+#' @param as_list Logical. Default is `FALSE`. If `nirs_channels` is specified
+#'   as a list, it will be coerced to a flat character vector and an
+#'   information message is displayed (when `verbose = TRUE`). If `TRUE`,  
+#'   `nirs_channels` is returned as-is, i.e. as a list for callers which 
+#'   require it. 
+#'
 #' @param required Logical. Default is `TRUE`. `event_channel` must be
 #'   present or detected in metadata. If `FALSE`, `event_channel` may be `NULL`.
 #'
@@ -43,9 +49,13 @@
 #' @param integer Logical. Default is `FALSE`. If `TRUE`, validate `x` as
 #'   integer-like values using [rlang::is_integerish()]. Otherwise tested as a
 #'   numeric value.
+#' 
+#' @param allow_na Logical. Default is `FALSE`. If `TRUE`, allows pass through
+#'   of `NA` to the returned numeric/integer vector.
 #'
 #' @param msg1,msg2 A character string appended to the [cli::cli_abort()]
 #'   message when numeric validation fails.
+#' 
 #' @inheritParams read_mnirs
 #'
 #' @details
@@ -88,7 +98,7 @@ validate_numeric <- function(
     range = NULL,
     inclusive = c("left", "right"),
     integer = FALSE,
-    invalid = FALSE,
+    allow_na = FALSE,
     msg1 = "",
     msg2 = ""
 ) {
@@ -104,8 +114,8 @@ validate_numeric <- function(
         abort_validation(name, integer, msg1, msg2)
     }
 
-    ## valid elements length — skip NA scan when invalid = TRUE
-    if (!invalid) {
+    ## valid elements length — skip NA scan when allow_na = TRUE
+    if (!allow_na) {
         valid <- !is.na(x)
         n_valid <- sum(valid)
         if (n_valid == 0L) {
@@ -122,7 +132,7 @@ validate_numeric <- function(
 
     ## subset once for range/integer checks
     needs_subset <- !is.null(range) || integer
-    if (needs_subset && !invalid) {
+    if (needs_subset && !allow_na) {
         x_valid <- if (n_valid < length(x)) x[valid] else x
     }
 
@@ -218,7 +228,8 @@ parse_channel_name <- function(channel, data, env = rlang::caller_env()) {
 validate_nirs_channels <- function(
     nirs_channels,
     data,
-    verbose = TRUE,
+    verbose = FALSE, ## only for functions requiring list()
+    as_list = FALSE,
     env = rlang::caller_env()
 ) {
     ## parse NSE input
@@ -231,9 +242,11 @@ validate_nirs_channels <- function(
     if (is.null(nirs_unlisted) || length(nirs_unlisted) == 0) {
         nirs_channels <- attr(data, "nirs_channels") ## should be vector
         nirs_unlisted <- nirs_channels
-        if (verbose && !is.null(nirs_unlisted)) {
+        if (verbose && as_list && !is.null(nirs_unlisted)) {
             cli_inform(c(
-                "i" = "{.arg nirs_channels} grouped together by default."
+                "i" = "{.arg nirs_channels} = \\
+                {col_blue({deparse(nirs_unlisted)})} \\
+                grouped together from metadata."
             ))
         }
     }
@@ -266,9 +279,22 @@ validate_nirs_channels <- function(
         ))
     }
 
+    ## preserve list grouping for callers that need it
+    if (as_list) {
+        return(nirs_channels)
+    }
+
+    ## default: coerce to flat vector
+    if (verbose && is.list(nirs_channels)) {
+        cli_inform(c(
+            "i" = "{.arg nirs_channels} = \\
+            {col_blue({deparse(nirs_unlisted)})} passed through unlisted."
+        ))
+    }
+
     ## returns explicitly grouped nirs_channels
     ## or nirs_unlisted if retrieved from metadata
-    return(nirs_channels)
+    return(nirs_unlisted)
 }
 
 
@@ -482,12 +508,12 @@ validate_width_span <- function(
 
 
 #' @rdname validate_mnirs
-validate_x_t <- function(x, t, invalid = FALSE) {
-    ## exclude NULL by defaulting to invalid character
+validate_x_t <- function(x, t, allow_na = FALSE) {
+    ## exclude NULL by defaulting to allow_na character
     x <- x %||% character()
     t <- t %||% character()
-    validate_numeric(x, invalid = invalid)
-    validate_numeric(t, invalid = invalid)
+    validate_numeric(x, allow_na = allow_na)
+    validate_numeric(t, allow_na = allow_na)
     if (length(x) != length(t)) {
         cli_abort(c(
             "x" = "{.arg x} and {.arg t} must be {.cls numeric} vectors \\

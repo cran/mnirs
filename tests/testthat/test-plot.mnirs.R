@@ -190,8 +190,8 @@ test_that("format_hmmss handles NA values", {
 mock_mnirs <- function() {
     df <- data.frame(
         time = 1:10,
-        HHb = c(1:8, NA, NA),
-        O2Hb = c(rep(2, 8), NA, NA)
+        HHb = c(1:6, NA, NA, 9:10),
+        O2Hb = c(rep(2, 3), NA, NA, rep(2, 5))
     )
     structure(
         df,
@@ -204,13 +204,14 @@ mock_mnirs <- function() {
 test_that("na.omit removes rows with any NA in nirs_channels", {
     x <- mock_mnirs()
 
-    # With na.omit = FALSE (default)
-    p1 <- plot(x)
-    expect_equal(nrow(p1$data), 20L) # 10 rows × 2 channels
+    ## na.omit = FALSE: all 10 rows retained per channel
+    p1 <- plot(x, points = TRUE)
+    expect_equal(nrow(p1$layers[[1L]]$data), 10L) ## HHb line
+    expect_equal(nrow(p1$layers[[3L]]$data), 10L) ## O2Hb line
 
-    # With na.omit = TRUE
-    p2 <- plot(x, na.omit = TRUE)
-    expect_equal(nrow(p2$data), 16L) # 8 rows × 2 channels
+    p2 <- plot(x, points = TRUE, na.omit = TRUE)
+    expect_equal(nrow(p2$layers[[1L]]$data), 8L) ## HHb line
+    expect_equal(nrow(p2$layers[[3L]]$data), 8L) ## O2Hb line
 })
 
 test_that("time_labels controls x-axis name and formatting", {
@@ -246,7 +247,7 @@ test_that("n.breaks controls number of breaks", {
     expect_true(length(breaks2) >= length(breaks1))
 })
 
-test_that("plot.mnirs preserves non-NIRS columns", {
+test_that("plot.mnirs groups and facets", {
     x <- mock_mnirs()
 
     # Add a grouping column that we want to facet by
@@ -258,14 +259,8 @@ test_that("plot.mnirs preserves non-NIRS columns", {
     # Check that the group column exists in plot data
     expect_true("group" %in% names(p$data))
 
-    # Check that group column has correct length (rows × channels)
-    expect_equal(nrow(p$data), 20L) # 10 rows × 2 channels
-
     # Check that group values are correctly repeated
-    expect_equal(
-        p$data$group,
-        rep(x$group, times = length(attr(x, "nirs_channels")))
-    )
+    expect_equal(p$data$group, x$group)
 
     # Verify faceting works without error
     expect_no_error(p + ggplot2::facet_wrap(~group))

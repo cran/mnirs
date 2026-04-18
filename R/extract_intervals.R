@@ -33,8 +33,8 @@
 #'   or [by_sample()].
 #'
 #' @param span A one- or two-element numeric vector `c(before, after)` in units 
-#'   of `time_channel`, or a `list()` of such vectors. Applied additively to
-#'   interval boundaries:
+#'   of `time_channel`, or a `list()` of such vectors. (*default* 
+#'   `span = c(-60, 60)`. Applied additively to interval boundaries:
 #'   - When both `start` and `end` are specified: `span[1]` shifts start times,
 #'     `span[2]` shifts end times.
 #'   - When only `start` or only `end` is specified: both `span[1]` and
@@ -160,13 +160,14 @@
 #'     zero_time = TRUE,
 #'     verbose = FALSE
 #' ) |>
-#'     resample_mnirs(verbose = FALSE) ## avoid issues ensemble-averaging irregular samples
+#'     ## avoid issues ensemble-averaging irregular samples
+#'     resample_mnirs(method = "linear", verbose = FALSE) 
 #'
 #' ## ensemble-average across multiple intervals
 #' interval_list <- extract_intervals(
 #'     data,                       ## channels recycled to all intervals by default
 #'     nirs_channels = c(smo2_left, smo2_right),
-#'     start = by_time(368, 1093), ## manually identified interval start times
+#'     start = by_time(368, 1084), ## manually identified interval start times
 #'     span = c(-20, 90),          ## include the last 180-sec of each interval (recycled)
 #'     event_groups = "ensemble",  ## ensemble-average across two intervals
 #'     zero_time = TRUE            ## re-calculate common time to start from `0`
@@ -201,7 +202,9 @@ extract_intervals <- function(
     if (missing(verbose)) {
         verbose <- getOption("mnirs.verbose", default = TRUE)
     }
-    nirs_channels <- validate_nirs_channels(enquo(nirs_channels), data, verbose)
+    nirs_channels <- validate_nirs_channels(
+        enquo(nirs_channels), data, verbose, as_list = TRUE
+    )
     time_channel <- validate_time_channel(enquo(time_channel), data)
     ## avoid floating point precision issues downstream with findIntervals()
     time_vec <- round(data[[time_channel]], 6)
@@ -248,6 +251,19 @@ extract_intervals <- function(
             event_channel, data, required = FALSE
         )
         event_vec <- NULL
+    }
+
+    if (
+        verbose &&
+            event_groups[1L] != "distinct" &&
+            is.null(attr(data, "nirs_channels")) &&
+            !is.list(nirs_channels)
+    ) {
+        cli_inform(c(
+            "!" = "{.fn extract_intervals} accepts {.arg nirs_channels} = \\
+            {col_blue('list()')} for channel grouping when \\
+            ensemble-averaging. See `?extract_intervals`."
+        ))
     }
 
     ## expand parameters ====================================

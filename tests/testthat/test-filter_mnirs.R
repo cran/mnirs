@@ -364,7 +364,7 @@ moxy_data <- read_mnirs(
     time_channel = c(time = "hh:mm:ss"),
     verbose = FALSE
 ) |>
-    resample_mnirs(verbose = FALSE)
+    resample_mnirs(method = "linear", verbose = FALSE)
 
 ## Input validation tests =======================================
 test_that("filter_mnirs validates input data", {
@@ -375,34 +375,52 @@ test_that("filter_mnirs validates input data", {
 })
 
 test_that("filter_mnirs method aliases work", {
-    result_spline <- filter_mnirs(moxy_data, method = "spline", verbose = FALSE)
     result_ma <- filter_mnirs(
-        moxy_data,
-        method = "ma",
-        width = 5,
-        verbose = FALSE
+        moxy_data, method = "moving_average", width = 5, verbose = FALSE
+    )
+    result_spl <- filter_mnirs(
+        moxy_data, method = "smooth_spline", verbose = FALSE
     )
 
-    expect_s3_class(result_spline, "mnirs")
-    expect_s3_class(result_ma, "mnirs")
     expect_equal(
-        result_spline,
-        filter_mnirs(moxy_data, method = "smooth_spline", verbose = FALSE)
+        filter_mnirs(
+            moxy_data, method = "moving average", width = 5, verbose = FALSE
+        ),
+        result_ma
     )
     expect_equal(
-        result_ma,
         filter_mnirs(
-            moxy_data,
-            method = "moving_average",
-            width = 5,
-            verbose = FALSE
-        )
+            moxy_data, method = "Moving Average", width = 5, verbose = FALSE
+        ),
+        result_ma
+    )
+    expect_equal(
+        filter_mnirs(
+            moxy_data, method = "MA", width = 5, verbose = FALSE
+        ),
+        result_ma
+    )
+    expect_equal(
+        filter_mnirs(moxy_data, verbose = FALSE),
+        result_spl
+    )
+    expect_equal(
+        filter_mnirs(moxy_data, method = "spline", verbose = FALSE),
+        result_spl
+    )
+    expect_equal(
+        filter_mnirs(moxy_data, method = "smooth spline", verbose = FALSE),
+        result_spl
+    )
+    expect_equal(
+        filter_mnirs(moxy_data, method = "Smooth Spline", verbose = FALSE),
+        result_spl
     )
 })
 
 test_that("filter_mnirs validates method argument", {
     expect_error(
-        filter_mnirs(moxy_data, method = "invalid"),
+        filter_mnirs(moxy_data, method = "invalid", verbose = FALSE),
         "should be one of"
     )
 })
@@ -446,7 +464,7 @@ test_that("smooth_spline handles NAs", {
         time_channel = c(time = "hh:mm:ss"),
         verbose = FALSE
     ) |>
-        resample_mnirs(verbose = FALSE, method = "none")
+        resample_mnirs(method = "none", verbose = FALSE)
 
     result <- filter_mnirs(
         moxy_data,
@@ -463,7 +481,10 @@ test_that("smooth_spline handles NAs", {
     )
 
     expect_error(
-        filter_mnirs(moxy_data, method = "smooth_spline", na.rm = FALSE),
+        filter_mnirs(
+            moxy_data, method = "smooth_spline", na.rm = FALSE,
+            verbose = FALSE
+        ),
         "NA"
     )
 })
@@ -477,19 +498,27 @@ test_that("smooth_spline errors with irregular samples", {
     )
 
     expect_error(
-        filter_mnirs(moxy_data, method = "smooth_spline"),
+        filter_mnirs(
+            moxy_data, method = "smooth_spline", verbose = FALSE
+        ),
         "irregular samples"
     )
 })
 
 test_that("smooth_spline validates spar parameter", {
     expect_error(
-        filter_mnirs(moxy_data, method = "smooth_spline", spar = -1),
+        filter_mnirs(
+            moxy_data, method = "smooth_spline", spar = -1,
+            verbose = FALSE
+        ),
         "spar.*numeric"
     )
 
     expect_error(
-        filter_mnirs(moxy_data, method = "smooth_spline", spar = c(0.1, 0.5)),
+        filter_mnirs(
+            moxy_data, method = "smooth_spline", spar = c(0.1, 0.5),
+            verbose = FALSE
+        ),
         "spar.*numeric"
     )
 })
@@ -557,7 +586,8 @@ test_that("butterworth errors without W or fc", {
             moxy_data,
             method = "butterworth",
             type = "low",
-            order = 2
+            order = 2,
+            verbose = FALSE
         ),
         "W.*fc.*must be defined"
     )
@@ -570,7 +600,8 @@ test_that("butterworth errors for invalid fc", {
             method = "butterworth",
             type = "low",
             order = 2,
-            fc = 100
+            fc = 100,
+            verbose = FALSE
         ),
         "must be between.*0.*half"
     )
@@ -582,7 +613,8 @@ test_that("butterworth validates filter type", {
             moxy_data,
             method = "butterworth",
             type = "invalid",
-            W = 0.1
+            W = 0.1,
+            verbose = FALSE
         ),
         "should be one of"
     )
@@ -638,7 +670,8 @@ test_that("butterworth validates W length for stop/pass filters", {
             method = "butterworth",
             type = "stop",
             order = 2,
-            W = 0.5
+            W = 0.5,
+            verbose = FALSE
         ),
         "W.*numeric"
     )
@@ -649,7 +682,8 @@ test_that("butterworth validates W length for stop/pass filters", {
             method = "butterworth",
             type = "pass",
             order = 2,
-            fc = 5
+            fc = 5,
+            verbose = FALSE
         ),
         "fc.*numeric"
     )
@@ -662,7 +696,7 @@ test_that("butterworth handles NAs with na.rm = TRUE", {
         time_channel = c(time = "hh:mm:ss"),
         verbose = FALSE
     ) |>
-        resample_mnirs(verbose = FALSE, method = "none")
+        resample_mnirs(method = "none", verbose = FALSE)
 
     result <- filter_mnirs(
         moxy_data,
@@ -768,18 +802,18 @@ test_that("filter_mnirs respects nirs_channels argument", {
     expect_true(identical(result$smo2_left, moxy_data$smo2_left))
     expect_equal(var(diff(result$smo2_left)), var(diff(moxy_data$smo2_left)))
 
-    expect_equal(
+    expect_equal(attr(result, "nirs_channels"), "smo2_right")
+
+    expect_false(isTRUE(all.equal(
         attr(result, "nirs_channels"),
         attr(moxy_data, "nirs_channels")
-    )
+    )))
 })
 
 ## Metadata preservation tests ==============================================
 test_that("filter_mnirs preserves and updates metadata", {
     original_meta <- attributes(moxy_data)
-
     result <- filter_mnirs(moxy_data, method = "smooth_spline", verbose = FALSE)
-
     result_meta <- attributes(result)
 
     expect_equal(result_meta$nirs_channels, original_meta$nirs_channels)
@@ -799,39 +833,6 @@ test_that("butterworth updates sample_rate in metadata", {
 
     expect_equal(attr(result, "sample_rate"), 10)
     expect_false(attr(result, "sample_rate") == attr(moxy_data, "sample_rate"))
-})
-
-test_that("filter_mnirs accumulates nirs_channels across calls", {
-    ## set one nirs_channel
-    attr(moxy_data, "nirs_channels") <- "smo2_left"
-
-    # Filter only left channel
-    filtered1 <- filter_mnirs(
-        moxy_data,
-        method = "smooth_spline",
-        spar = 0.5,
-        verbose = FALSE
-    )
-
-    expect_setequal(
-        attr(filtered1, "nirs_channels"),
-        "smo2_left"
-    )
-
-    # Filter right channel on already-filtered data
-    filtered2 <- filter_mnirs(
-        filtered1,
-        nirs_channels = "smo2_right",
-        method = "smooth_spline",
-        spar = 0.5,
-        verbose = FALSE
-    )
-
-    # Should accumulate both channels
-    expect_setequal(
-        attr(filtered2, "nirs_channels"),
-        c("smo2_left", "smo2_right")
-    )
 })
 
 ## verbose output tests ==============================================
@@ -906,7 +907,7 @@ test_that("filter_mnirs works visually on Moxy data", {
         time_channel = c(time = "hh:mm:ss"),
         verbose = FALSE
     ) |>
-        resample_mnirs(verbose = FALSE) |>
+        resample_mnirs(method = "linear", verbose = FALSE) |>
         dplyr::mutate(
             dplyr::across(
                 smo2,

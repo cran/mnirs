@@ -26,7 +26,7 @@
 #'   - `nirs_channels = c("SmO2 Live", "SmO2 Live(2)")`
 #'   - `time_channel = c("hh:mm:ss")`
 #'   - `event_channel = c("Lap")`
-#'   - `interval_times = list(start = c(204, 878))` (occlusion and hyperaemia)
+#'   - `interval_times = list(start = c(204, 878))` (start and end of exercise)
 #'
 #' @source Moxy Monitor (Fortiori Design LLC), exported via PerfPro Studio
 #'   desktop software (https://perfprostudio.com/).
@@ -87,7 +87,7 @@ NULL
 #'
 #' @docType data
 #'
-#' @format .csv file with header metadata and 10 columns and 12000 rows:
+#' @format .csv file with header metadata and 10 columns and 11995 rows:
 #'   \describe{
 #'     \item{Timestamp (seconds passed)}{Elapsed time (s).}
 #'     \item{Lap/Event}{Lap number (numeric).}
@@ -109,8 +109,8 @@ NULL
 #'   - `nirs_channels = c("SmO2", "SmO2 unfiltered", "O2HB unfiltered", "HHb unfiltered")`
 #'   - `time_channel = c("Timestamp (seconds passed)")`
 #'   - `event_channel = c("Lap/Event")`
-#'   - `interval_times = list(start = c(2150.09, 2865.05), end = c(2441.06, 3168.08))`
-#'   - `interval_times = list(start = c(65.94, 780.90), end = c(356.91, 1183.93))` from zero_time
+#'   - `interval_times = list(start = c(2150.09, 2872.28), end = c(2452.26, 3167.98))`
+#'   - `interval_times = list(start = c(65.94, 788.13), end = c(368.11, 1083.83))` from zero_time
 #'
 #' @source Train.Red (Train.Red B.V.), exported via Train.Red app
 #'   (https://train.red/)

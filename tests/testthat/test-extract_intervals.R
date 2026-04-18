@@ -1551,6 +1551,20 @@ test_that("extract_intervals coerces raw numeric to by_time", {
     expect_length(result, 1)
     expect_equal(result[[1]]$time[1], 2 - 1)
     expect_equal(rev(result[[1]]$time)[1], 2 + 1)
+
+
+    obj <- 2
+    result <- extract_intervals(
+        data = data,
+        start = obj,
+        event_groups = "distinct",
+        span = c(-0.5, 0.5),
+        verbose = FALSE
+    )
+
+    expect_length(result, 1)
+    expect_equal(result[[1]]$time[1], 2 - 0.5)
+    expect_equal(rev(result[[1]]$time)[1], 2 + 0.5)
 })
 
 test_that("extract_intervals coerces raw character to by_label", {
@@ -1745,8 +1759,80 @@ test_that("extract_intervals respects nirs_channels metadata", {
         verbose = TRUE
     )
 
-    # expect_equal(attr(result[[1]], "nirs_channels"), all_channels)
     expect_equal(attr(result[[1]], "nirs_channels"), "smo2_left")
+})
+
+
+test_that("extract_intervals informs when nirs_channels is not a list()", {
+    data <- create_mock_mnirs(n = 60, sample_rate = 10)
+    attr(data, "nirs_channels") <- NULL  ## remove metadata
+
+    ## fires: verbose=TRUE, ensemble, no metadata, non-list channels
+    expect_message(
+        extract_intervals(
+            data,
+            nirs_channels = "smo2_left",
+            time_channel = "time",
+            start = by_time(1, 4),
+            span = c(-0.5, 0.5),
+            event_groups = "ensemble",
+            verbose = TRUE
+        ),
+        "list\\(\\).*channel grouping"
+    )
+
+    ## silent: verbose=FALSE
+    expect_no_message(
+        extract_intervals(
+            data,
+            nirs_channels = "smo2_left",
+            time_channel = "time",
+            start = by_time(1, 4),
+            span = c(-0.5, 0.5),
+            event_groups = "ensemble",
+            verbose = FALSE
+        )
+    )
+
+    ## silent: nirs_channels already a list()
+    expect_no_message(
+        extract_intervals(
+            data,
+            nirs_channels = list("smo2_left"),
+            time_channel = "time",
+            start = by_time(1, 4),
+            span = c(-0.5, 0.5),
+            event_groups = "ensemble",
+            verbose = TRUE
+        )
+    )
+
+    ## silent: event_groups = "distinct"
+    expect_no_message(
+        extract_intervals(
+            data,
+            nirs_channels = "smo2_left",
+            time_channel = "time",
+            start = by_time(1, 4),
+            span = c(-0.5, 0.5),
+            event_groups = "distinct",
+            verbose = TRUE
+        )
+    )
+
+    ## silent: data has nirs_channels metadata
+    attr(data, "nirs_channels") <- "smo2_left"
+    expect_no_message(
+        extract_intervals(
+            data,
+            nirs_channels = "smo2_left",
+            time_channel = "time",
+            start = by_time(1, 4),
+            span = c(-0.5, 0.5),
+            event_groups = "ensemble",
+            verbose = TRUE
+        )
+    )
 })
 
 
@@ -1795,7 +1881,7 @@ test_that("extract_intervals works on train.red data", {
         time_channel = c(time = "Timestamp (seconds passed)"),
         verbose = FALSE
     ) |>
-        resample_mnirs(verbose = FALSE)
+        resample_mnirs(method = "linear", verbose = FALSE)
 
     result <- extract_intervals(
         data,
@@ -1867,13 +1953,13 @@ test_that("extract_intervals benchmark", {
         zero_time = TRUE,
         verbose = FALSE
     ) |>
-        resample_mnirs(verbose = FALSE)
+        resample_mnirs(method = "linear", verbose = FALSE)
 
     # for (i in seq_len(3)) {
     #     bm <- bench::mark(
     #         extract_intervals = extract_intervals(
     #             data_list,
-    #             start = by_time(368, 1093),
+    #             start = by_time(368, 1084),
     #             event_groups = "distinct",
     #             span = c(-20, 90),
     #             zero_time = TRUE,

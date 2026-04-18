@@ -168,8 +168,7 @@ find_interval_time <- function(
                 cli_abort(c(
                     "x" = "No events detected matching \\
                     {.val {interval$by_label}}.",
-                    "i" = "Must match contents of \\
-                    {.arg event_channel} exactly."
+                    "i" = "Must match contents of {.arg event_channel} exactly."
                 ))
             }
             time_vec[matches]
@@ -181,10 +180,8 @@ find_interval_time <- function(
                 matches <- which(event_int == lap_val)
                 if (length(matches) == 0L) {
                     cli_abort(c(
-                        "x" = "No samples found for \\
-                        lap {.val {lap_val}}.",
-                        "i" = "Check that \\
-                        {.arg event_channel} contains \\
+                        "x" = "No samples found for lap {.val {lap_val}}.",
+                        "i" = "Check that {.arg event_channel} contains \\
                         lap numbers."
                     ))
                 }

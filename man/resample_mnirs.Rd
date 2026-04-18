@@ -9,7 +9,7 @@ resample_mnirs(
   time_channel = NULL,
   sample_rate = NULL,
   resample_rate = sample_rate,
-  method = c("locf", "linear", "none"),
+  method = c("none", "linear", "locf"),
   verbose = TRUE
 )
 }
@@ -36,8 +36,11 @@ frame. If \code{NULL} (\emph{default}) resamples to the existing \code{sample_ra
 which regularises any irregular samples without changing the rate.}
 
 \item{method}{A character string specifying how new samples are filled.
-Default is \emph{"locf"} (see \emph{Details} for more on each method):
+Default is \emph{"none"}. Filling must be opted into explicitly (see \emph{Details}):
 \describe{
+\item{\code{"none"}}{Matches each new sample to the nearest original
+\code{time_channel} value without any interpolation, to within tolerance of
+half a sample-interval. New samples are returned as \code{NA}.}
 \item{\code{"locf"}}{(\emph{"Last observation carried forward"}). Fills new and
 missing samples with the most recent valid non-\code{NA} value to the left,
 or the nearest valid value to the right for leading \code{NA}s. Safe for
@@ -45,10 +48,6 @@ numeric, integer, and character columns.}
 \item{\code{"linear"}}{Fills new and missing samples via linear interpolation
 using \code{\link[stats:approxfun]{stats::approx()}}. Suitable for numeric columns only; non-numeric
 columns will fall back to \code{"locf"} behaviour.}
-\item{\code{"none"}}{Matches each new sample to the nearest original
-\code{time_channel} value within half a sample-interval tolerance, without
-any interpolation. New samples that fall between original values are
-returned as \code{NA}.}
 }}
 
 \item{verbose}{Logical. Default is \code{TRUE}. Will display or silence (if
@@ -69,12 +68,11 @@ interpolate across new samples in the resampled data range.
 \subsection{Sample rate and time channel}{
 
 \code{time_channel} and \code{sample_rate} are retrieved automatically from \code{data}
-of class \emph{"mnirs"} which has been processed with \code{{mnirs}}, if not
-defined explicitly.
+of class \emph{"mnirs"}, if not defined explicitly.
 
 Otherwise, \code{sample_rate} will be estimated from the values in \code{time_channel}.
 However, this may return unexpected values, and it is safer to define
-\code{sample_rate} explicitly.
+\code{sample_rate} explicitly or retrieve it from \emph{"mnirs"} metadata.
 }
 
 \subsection{Default behaviour}{
@@ -88,16 +86,15 @@ changing the nominal rate.
 \subsection{Column handling}{
 
 Numeric columns are interpolated according to \code{method} (see
-\code{?replace_missing}). Non-numeric columns (character event labels, integer
-lap numbers) are always filled by last-observation-carried-forward,
+\code{?replace_missing}). Non-numeric columns (e.g. character event labels,
+integer lap numbers) are always filled by last-observation-carried-forward,
 regardless of \code{method}:
 \itemize{
-\item When down-sampling, the first non-\code{NA} value in each output bin is used.
-\item When up-sampling or regularising, the most recent original value is
-carried forward into new samples.
 \item For \code{method = "none"}, existing rows are matched to the nearest original
 values of \code{time_channel} without interpolation or filling, meaning newly
 created samples and any \code{NA}s in the original data are returned as \code{NA}.
+\item When down-sampling, numeric columns use time-weighted averaging.
+Non-numeric columns use the first valid value in each output bin.
 }
 }
 }
@@ -114,10 +111,10 @@ data <- read_mnirs(
 data
 
 data_resampled <- resample_mnirs(
-    data,
-    resample_rate = 2,  ## blank channels will be retrieved from metadata
-    method = "linear",  ## blank by default will resample to `sample_rate`
-    verbose = TRUE      ## linear interpolation across resampled indices
+    data,               ## blank channels will be retrieved from metadata
+    resample_rate = 2,  ## blank by default will resample to `sample_rate`
+    method = "linear",  ## linear interpolation across resampled indices
+    verbose = TRUE      
 )
 
 ## note the altered `time` values resolving the above warning

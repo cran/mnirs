@@ -28,8 +28,8 @@ compute_valid_neighbours(
 )
 }
 \arguments{
-\item{t}{An \emph{optional} numeric vector of the predictor variable (time or
-sample number). Default is \code{seq_along(x)}.}
+\item{t}{An \emph{optional} numeric vector of the predictor variable (e.g. time).
+Default is \code{seq_along(x)}.}
 
 \item{idx}{A numeric vector of indices of \code{t} at which to calculate local
 windows. All indices of \code{t} by \emph{default}, or can be used to only calculate

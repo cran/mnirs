@@ -6,7 +6,7 @@
 \usage{
 shift_mnirs(
   data,
-  nirs_channels = list(NULL),
+  nirs_channels = list(),
   time_channel = NULL,
   to = NULL,
   by = NULL,

@@ -22,9 +22,11 @@
 #' @inheritParams validate_mnirs
 #'
 #' @details
-#' ## filtering method
+#' ## filtering methods
 #'
-#' #### `method = "smooth_spline"`
+#' ### `method = "smooth_spline"`
+#' 
+#' Aliases: `c("smooth spline", "spline")`
 #'
 #' Applies a non-parametric cubic smoothing spline from
 #' [stats::smooth.spline()]. Smoothing is defined by the parameter `spar`,
@@ -42,6 +44,8 @@
 #' }
 #'
 #' #### `method = "butterworth"`
+#' 
+#' Aliases: `c("butter")`
 #'
 #' Applies a centred (two-pass symmetrical) Butterworth digital filter
 #' from [signal::butter()] and [signal::filtfilt()].
@@ -94,6 +98,8 @@
 #' }
 #'
 #' #### `method = "moving_average"`
+#' 
+#' Aliases: `c("moving average", "ma")`
 #'
 #' Applies a centred (symmetrical) moving average filter in a local
 #' window, defined by either `width` as the number of samples around
@@ -181,16 +187,21 @@ filter_mnirs <- function(
 ) {
     ## validation ====================================
     validate_mnirs_data(data)
-    ## using method aliases
-    method <- match.arg(method, c(
-        "smooth_spline", "butterworth", "moving_average", "spline", "ma"
-    ))
-    method <- switch(
+    ## normalise method aliases before matching
+    method <- gsub(
+        "^(ma|moving[ _-]average)$",
+        "moving_average",
         method,
-        spline = "smooth_spline",
-        ma = "moving_average",
-        method
+        ignore.case = TRUE
     )
+    method <- gsub(
+        "^(spline|smooth[ _-]spline)$",
+        "smooth_spline",
+        method,
+        ignore.case = TRUE
+    )
+    method <- match.arg(method)
+    
     if (missing(verbose)) {
         verbose <- getOption("mnirs.verbose", default = TRUE)
     }
@@ -215,11 +226,9 @@ filter_mnirs.smooth_spline <- function(
     ...
 ) {
     ## validation ==========================================
-    nirs_channels <- validate_nirs_channels(
-        enquo(nirs_channels), data, verbose = FALSE
-    )
-    time_channel <- validate_time_channel(enquo(time_channel), data)
     metadata <- attributes(data)
+    nirs_channels <- validate_nirs_channels(enquo(nirs_channels), data, verbose)
+    time_channel <- validate_time_channel(enquo(time_channel), data)
     spar <- list(...)$spar
     validate_numeric(spar, 1, c(0, Inf), FALSE, msg1 = "one-element positive")
 
@@ -266,7 +275,7 @@ filter_mnirs.smooth_spline <- function(
     })
 
     ## Metadata =================================
-    metadata$nirs_channels <- unique(c(metadata$nirs_channels, nirs_channels))
+    metadata$nirs_channels <- unique(nirs_channels)
 
     return(create_mnirs_data(data, metadata))
 }
@@ -285,11 +294,9 @@ filter_mnirs.butterworth <- function(
     ...
 ) {
     ## validation ==========================================
-    nirs_channels <- validate_nirs_channels(
-        enquo(nirs_channels), data, verbose = FALSE
-    )
-    time_channel <- validate_time_channel(enquo(time_channel), data)
     metadata <- attributes(data)
+    nirs_channels <- validate_nirs_channels(enquo(nirs_channels), data, verbose)
+    time_channel <- validate_time_channel(enquo(time_channel), data)
     args <- list(...)
     sample_rate <- args$sample_rate
     sample_rate <- validate_sample_rate(
@@ -344,7 +351,7 @@ filter_mnirs.butterworth <- function(
     })
 
     ## Metadata =================================
-    metadata$nirs_channels <- unique(c(metadata$nirs_channels, nirs_channels))
+    metadata$nirs_channels <- unique(nirs_channels)
     metadata$time_channel <- time_channel
     metadata$sample_rate <- sample_rate
 
@@ -365,11 +372,9 @@ filter_mnirs.moving_average <- function(
     ...
 ) {
     ## validation ==========================================
-    nirs_channels <- validate_nirs_channels(
-        enquo(nirs_channels), data, verbose = FALSE
-    )
-    time_channel <- validate_time_channel(enquo(time_channel), data)
     metadata <- attributes(data)
+    nirs_channels <- validate_nirs_channels(enquo(nirs_channels), data, verbose)
+    time_channel <- validate_time_channel(enquo(time_channel), data)
     args <- list(...)
     width <- args$width
     span <- args$span
@@ -392,7 +397,7 @@ filter_mnirs.moving_average <- function(
     })
 
     ## Metadata =================================
-    metadata$nirs_channels <- unique(c(metadata$nirs_channels, nirs_channels))
+    metadata$nirs_channels <- unique(nirs_channels)
     metadata$time_channel <- time_channel
 
     return(create_mnirs_data(data, metadata))
