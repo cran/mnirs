@@ -24,7 +24,7 @@ Channel mapping for \code{\link[=read_mnirs]{read_mnirs()}}:
 }
 \source{
 Artinis Medical Systems. Oxymon MKIII, exported via Oxysoft desktop
-software (https://www.artinis.com/)
+software (https://artinis.com/)
 }
 \description{
 Exported from Artinis Oxysoft, recorded on Oxymon MKIII at

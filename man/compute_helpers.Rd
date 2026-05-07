@@ -38,7 +38,7 @@ for known indices, such as invalid values of \code{x}.}
 \item{width}{An integer defining the local window in number of samples
 around \code{idx} in which to perform the operation, according to \code{align}.}
 
-\item{span}{A numeric value defining the local window timespan around \code{idx}
+\item{span}{A numeric value defining the local window time span around \code{idx}
 in which to perform the operation, according to \code{align}. In units of
 \code{time_channel} or \code{t}.}
 
@@ -62,12 +62,12 @@ the number of standard deviations from the local median.
 \item Lower values are more sensitive and flag more outliers; higher values
 are more conservative.
 \item \code{outlier_cutoff = 3} Pearson's 3 sigma edit rule.
-\code{outlier_cutoff = 2} approximates a Tukey-style 1.5×IQR rule.
+\code{outlier_cutoff = 2} approximates a Tukey-style 1.5*IQR rule.
 \code{outlier_cutoff = 0} Tukey's median filter.
 }}
 
-\item{verbose}{Logical. Default is \code{TRUE}. Will display or silence (if
-\code{FALSE}) warnings and information messages helpful for troubleshooting. A
+\item{verbose}{Logical. Default is \code{TRUE}. Display or silence (if \code{FALSE})
+warnings and information messages helpful for troubleshooting. Ad
 global default can be set via \code{options(mnirs.verbose = FALSE)}.}
 }
 \value{
@@ -101,7 +101,7 @@ indicating outliers of \code{x} within a list of rolling sample windows
 }
 \details{
 The local rolling window can be specified by either \code{width} as the number of
-samples, or \code{span} as the timespan in units of \code{t}. Specifying \code{width}
+samples, or \code{span} as the time span in units of \code{t}. Specifying \code{width}
 is often faster than \code{span}.
 
 \code{align} defaults to \emph{"centre"} the local window around \code{idx} between

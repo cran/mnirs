@@ -8,7 +8,7 @@
 #'   for known indices, such as invalid values of `x`.
 #' @param width An integer defining the local window in number of samples
 #'   around `idx` in which to perform the operation, according to `align`.
-#' @param span A numeric value defining the local window timespan around `idx`
+#' @param span A numeric value defining the local window time span around `idx`
 #'   in which to perform the operation, according to `align`. In units of
 #'   `time_channel` or `t`.
 #' @param align Window alignment as *"centre"/"center"* (the *default*),
@@ -23,7 +23,7 @@
 #'
 #' @details
 #' The local rolling window can be specified by either `width` as the number of
-#'   samples, or `span` as the timespan in units of `t`. Specifying `width`
+#'   samples, or `span` as the time span in units of `t`. Specifying `width`
 #'   is often faster than `span`.
 #'
 #' `align` defaults to *"centre"* the local window around `idx` between

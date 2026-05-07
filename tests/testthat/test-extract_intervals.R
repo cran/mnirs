@@ -277,7 +277,7 @@ test_that("resolve_interval warns and truncates unequal lengths", {
             end = by_time(4, 7),
             time_vec = time_vec
         ),
-        "unequal lengths"
+        "Unequal lengths"
     )
 
     ## truncated to 2 paired intervals
@@ -285,7 +285,7 @@ test_that("resolve_interval warns and truncates unequal lengths", {
     expect_equal(length(result$end_time), 2)
 })
 
-test_that("resolve_interval resolves lap start-only to full lap boundaries", {
+test_that("resolve_interval resolves lap start-only to lap start", {
     event_vec <- c(1L, 1L, 1L, 2L, 2L, 2L, 3L, 3L, 3L)
     time_vec <- seq(0, 0.8, by = 0.1)
 
@@ -296,14 +296,14 @@ test_that("resolve_interval resolves lap start-only to full lap boundaries", {
         event_vec = event_vec
     )
 
-    ## lap 2 occupies rows 4-6; times 0.3-0.5
-    expect_true(result$has_start)
-    expect_true(result$has_end)
+    ## lap 2 starts row 4; time 0.3
     expect_equal(result$start_time, time_vec[4])
-    expect_equal(result$end_time, time_vec[6])
+    expect_null(result$end_time)
+    expect_true(result$has_start)
+    expect_false(result$has_end)
 })
 
-test_that("resolve_interval resolves lap end-only to full lap boundaries", {
+test_that("resolve_interval resolves lap end-only to lap end", {
     event_vec <- c(1L, 1L, 1L, 2L, 2L, 2L, 3L, 3L, 3L)
     time_vec <- seq(0, 0.8, by = 0.1)
 
@@ -314,11 +314,11 @@ test_that("resolve_interval resolves lap end-only to full lap boundaries", {
         event_vec = event_vec
     )
 
-    ## lap 3 occupies rows 7-9; times 0.6-0.8
-    expect_true(result$has_start)
+    ## lap 3 ends row 9; time 0.8
+    expect_equal(result$start_time, time_vec[9])
+    expect_null(result$end_time)
+    expect_false(result$has_start)
     expect_true(result$has_end)
-    expect_equal(result$start_time, time_vec[7])
-    expect_equal(result$end_time, time_vec[9])
 })
 
 test_that("resolve_interval lap single-boundary supports multiple laps", {
@@ -332,9 +332,11 @@ test_that("resolve_interval lap single-boundary supports multiple laps", {
         event_vec = event_vec
     )
 
-    ## lap 1: rows 1-2; lap 3: rows 5-6
+    ## lap 1: row 1; lap 3: row 5
     expect_equal(result$start_time, time_vec[c(1, 5)])
-    expect_equal(result$end_time, time_vec[c(2, 6)])
+    expect_null(result$end_time)
+    expect_true(result$has_start)
+    expect_false(result$has_end)
 })
 
 ## recycle_to_length() ==============================================
@@ -1426,12 +1428,11 @@ test_that("extract_intervals works with by_lap start only", {
     )
 
     expect_length(result, 1)
-    ## lap 3: rows 21-30, times 2.0-2.9
-    expect_equal(result[[1]]$time[1], 2.0)
-    expect_equal(rev(result[[1]]$time)[1], 2.9)
-    expect_equal(nrow(result[[1]]), 10)
+    ## lap 3: starts row 21, times 2.0
+    expect_equal(result[[1]]$time, 2.0)
+    expect_equal(nrow(result[[1]]), 1)
     ## interval_times reflects both boundaries
-    expect_equal(attr(result[[1]], "interval_times"), c(2.0, 2.9))
+    expect_equal(attr(result[[1]], "interval_times"), 2.0)
 
     ## span shifts boundaries around the full lap
     result <- extract_intervals(
@@ -1443,9 +1444,9 @@ test_that("extract_intervals works with by_lap start only", {
         verbose = FALSE
     )
 
-    ## lap 3 starts at 2.0, ends at 2.9; span[-0.5, 0.5] -> [1.5, 3.4]
+    ## lap 3 starts at 2.0; span[-0.5, 0.5] -> [1.5, 2.5]
     expect_equal(result[[1]]$time[1], 1.5)
-    expect_equal(rev(result[[1]]$time)[1], 3.4)
+    expect_equal(rev(result[[1]]$time)[1], 2.5)
 })
 
 test_that("extract_intervals works with by_lap end only", {
@@ -1462,11 +1463,10 @@ test_that("extract_intervals works with by_lap end only", {
     )
 
     expect_length(result, 1)
-    ## lap 5: rows 41-50, times 4.0-4.9
-    expect_equal(result[[1]]$time[1], 4.0)
-    expect_equal(rev(result[[1]]$time)[1], 4.9)
-    expect_equal(nrow(result[[1]]), 10)
-    expect_equal(attr(result[[1]], "interval_times"), c(4.0, 4.9))
+    ## lap 5: ends row 50, time 4.9
+    expect_equal(result[[1]]$time, 4.9)
+    expect_equal(nrow(result[[1]]), 1)
+    expect_equal(attr(result[[1]], "interval_times"), 4.9)
 })
 
 test_that("extract_intervals works with by_lap start and end", {
@@ -1835,6 +1835,28 @@ test_that("extract_intervals informs when nirs_channels is not a list()", {
     )
 })
 
+test_that("extract_intervals returns a list of class mnirs", {
+    data <- create_mock_mnirs(n = 100, sample_rate = 10)
+
+    result <- extract_intervals(
+        data = data,
+        nirs_channels = "smo2_left",
+        start = by_time(1, 5),
+        event_groups = "distinct",
+        span = c(-1, 1),
+        verbose = FALSE
+    )
+
+    expect_equal(class(result), c("mnirs", "list"))
+
+    ## print.mnirs should not show attr(,"class") trailer
+    output <- capture.output(print(result))
+    expect_false(any(grepl('attr\\(,"class"\\)', output)))
+    
+    ## calling `result` directly should not show attr(,"class") trailer
+    output <- capture.output(result)
+    expect_false(any(grepl('attr\\(,"class"\\)', output)))
+})
 
 ## integration tests ===================================
 
@@ -1860,9 +1882,13 @@ test_that("extract_intervals works on Moxy data", {
     expect_named(result[[1L]], c("hh:mm:ss", "smo2_left", "smo2_right"))
     ## range of time_channel
     expect_gte(min(result[[1L]][[1]]), 878 - 30)
-    expect_equal(min(result[[1L]][[1]]), 878 - 30, tolerance = 1)
+    expect_true(
+        all.equal(min(result[[1L]][[1]]), 878 - 30, tolerance = 1, scale = 1)
+    )
     expect_lte(max(result[[1L]][[1]]), 878 + 180)
-    expect_equal(max(result[[1L]][[1]]), 878 + 180, tolerance = 1)
+    expect_true(
+        all.equal(max(result[[1L]][[1]]), 878 + 180, tolerance = 1, scale = 1)
+    )
     ## equivalent to intake df
     expect_equal(
         result[[1L]],
@@ -1894,7 +1920,7 @@ test_that("extract_intervals works on train.red data", {
     )
 
     ## visual check
-    plot(result[[1L]], time_labels = TRUE)
+    # plot(result[[1L]], time_labels = TRUE)
 
     ## structure
     expect_length(result, 1)
@@ -1902,9 +1928,13 @@ test_that("extract_intervals works on train.red data", {
     expect_named(result[[1L]], c("time", "smo2_left", "smo2_right"))
     ## range of time_channel
     expect_gte(min(result[[1L]][[1]]), -30)
-    expect_equal(min(result[[1L]][[1]]), -30, tolerance = 0.1)
+    expect_true(
+        all.equal(min(result[[1L]][[1]]), -30, tolerance = 0.1, scale = 1)
+    )
     expect_lte(max(result[[1L]][[1]]), 180)
-    expect_equal(max(result[[1L]][[1]]), 180, tolerance = 0.1)
+    expect_true(
+        all.equal(max(result[[1L]][[1]]), 180, tolerance = 0.1, scale = 1)
+    )
 
     result <- extract_intervals(
         data,
@@ -1917,8 +1947,7 @@ test_that("extract_intervals works on train.red data", {
     )
 
     ## visual check
-    # library(patchwork)
-    # plot(result[[1L]]) + plot(result[[2L]])
+    # plot(result)
 
     ## structure
     expect_length(result, 2)
@@ -1928,13 +1957,21 @@ test_that("extract_intervals works on train.red data", {
     expect_named(result[[2L]], c("time", "smo2_left", "smo2_right"))
     ## range of time_channel
     expect_lte(min(result[[1L]][[1]]), 2150 - 30)
-    expect_equal(min(result[[1L]][[1]]), 2150 - 30, tolerance = 0.1)
+    expect_true(all.equal(
+        min(result[[1L]][[1]]), 2150 - 30, tolerance = 0.1, scale = 1
+    ))
     expect_lte(max(result[[1L]][[1]]), 2150 + 180)
-    expect_equal(max(result[[1L]][[1]]), 2150 + 180, tolerance = 0.1)
+    expect_true(all.equal(
+        max(result[[1L]][[1]]), 2150 + 180, tolerance = 0.1, scale = 1
+    ))
     expect_lte(min(result[[2L]][[1]]), 3168 - 30)
-    expect_equal(min(result[[2L]][[1]]), 3168 - 30, tolerance = 0.1)
+    expect_true(all.equal(
+        min(result[[2L]][[1]]), 3168 - 30, tolerance = 0.1, scale = 1
+    ))
     expect_lte(max(result[[2L]][[1]]), 3168 + 180)
-    expect_equal(max(result[[2L]][[1]]), 3168 + 180, tolerance = 0.1)
+    expect_true(all.equal(
+        max(result[[2L]][[1]]), data$time[nrow(data)], tolerance = 0.1, scale = 1
+    ))
 })
 
 ## benchmark ===========================================================

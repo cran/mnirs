@@ -32,8 +32,8 @@ occurs.
 \item If \code{NULL} (default), channels are retrieved from \emph{"mnirs"} metadata.
 }}
 
-\item{time_channel}{A character string giving the name of the time or sample
-column. Must match a column name in \code{data} exactly.
+\item{time_channel}{A character string naming the time or sample column.
+Must match a column name in \code{data} exactly.
 \itemize{
 \item If \code{NULL} (default), the \code{time_channel} metadata attribute of \code{data} is
 used.
@@ -51,14 +51,14 @@ lap numbers.
 values for ensemble-averaging. If \code{NULL}, will be estimated from
 \code{time_channel} (see \emph{Details}).}
 
-\item{start}{Specifies where intervals begin. Either raw values — numeric
+\item{start}{Specifies where intervals begin. Either raw values -- numeric
 for time values, character for event labels, explicit integer (e.g. \code{2L})
-for lap numbers — or created with \code{\link[=by_time]{by_time()}}, \code{\link[=by_label]{by_label()}}, \code{\link[=by_lap]{by_lap()}},
+for lap numbers -- or created with \code{\link[=by_time]{by_time()}}, \code{\link[=by_label]{by_label()}}, \code{\link[=by_lap]{by_lap()}},
 or \code{\link[=by_sample]{by_sample()}}.}
 
-\item{end}{Specifies where intervals end. Either raw values — numeric for
+\item{end}{Specifies where intervals end. Either raw values -- numeric for
 time values, character for event labels, explicit integer (e.g. \code{2L})
-for lap numbers — or created with \code{\link[=by_time]{by_time()}}, \code{\link[=by_label]{by_label()}}, \code{\link[=by_lap]{by_lap()}},
+for lap numbers -- or created with \code{\link[=by_time]{by_time()}}, \code{\link[=by_label]{by_label()}}, \code{\link[=by_lap]{by_lap()}},
 or \code{\link[=by_sample]{by_sample()}}.}
 
 \item{span}{A one- or two-element numeric vector \code{c(before, after)} in units
@@ -90,13 +90,13 @@ all detected intervals, returning a single data frame.}
 numeric \code{time_channel} values to start from zero within each interval
 data frame.}
 
-\item{verbose}{Logical. Default is \code{TRUE}. Will display or silence (if
-\code{FALSE}) warnings and information messages helpful for troubleshooting. A
+\item{verbose}{Logical. Default is \code{TRUE}. Display or silence (if \code{FALSE})
+warnings and information messages helpful for troubleshooting. Ad
 global default can be set via \code{options(mnirs.verbose = FALSE)}.}
 }
 \value{
 A named \code{list()} of \link[tibble:tibble-package]{tibbles} of class
-\emph{"mnirs"}, with metadata available via \code{attributes()}.
+\emph{"mnirs"}, each with metadata available via \code{attributes()}.
 }
 \description{
 Extract intervals from \emph{"mnirs"} time series data, specifying interval
@@ -106,25 +106,23 @@ index.
 \details{
 \subsection{Interval specification}{
 
-Interval boundaries are specified using helper functions, or by passing
-raw values directly:
+Interval \code{start} and \code{end} boundaries are specified using helper functions,
+or by passing raw values directly:
 
 \describe{
-\item{\code{\link[=by_time]{by_time()}} or numeric}{Time values in units of \code{time_channel}.}
-\item{\code{\link[=by_label]{by_label()}} or character}{Strings to match in \code{event_channel}.
+\item{\code{\link[=by_time]{by_time()}}}{Time values in units of \code{time_channel}.}
+\item{\code{\link[=by_label]{by_label()}}}{Strings to match in \code{event_channel}.
 All matching occurrences are returned.}
-\item{\code{\link[=by_lap]{by_lap()}} or explicit integer (e.g. \code{2L})}{Lap numbers to match
-in \code{event_channel}. Resolves to the first sample of each lap for
-\code{start}, and the last sample for \code{end}, or all samples of the lap if only
-one of either \code{start} or \code{end} is specified.}
+\item{\code{\link[=by_lap]{by_lap()}}}{Lap numbers to match in \code{event_channel}. Resolves to the
+first sample of each lap for \code{start}, and the last lap sample for \code{end}}
 \item{\code{\link[=by_sample]{by_sample()}}}{Integer sample indices (row numbers).}
 }
 
 Raw values supplied to \code{start}/\code{end} are auto-coerced:
 \itemize{
-\item Numeric → \code{\link[=by_time]{by_time()}}
-\item Character → \code{\link[=by_label]{by_label()}},
-\item Explicit integer (e.g. \code{2L}) → \code{\link[=by_lap]{by_lap()}}.
+\item Numeric -> \code{\link[=by_time]{by_time()}}
+\item Character -> \code{\link[=by_label]{by_label()}},
+\item Explicit integer (e.g. \code{2L}) -> \code{\link[=by_lap]{by_lap()}}.
 \item Use \code{\link[=by_sample]{by_sample()}} explicitly for sample indices.
 }
 
@@ -132,26 +130,29 @@ Raw values supplied to \code{start}/\code{end} are auto-coerced:
 label, end by time). When lengths differ, the shorter is recycled.
 }
 
-\subsection{The \code{span} window}{
+\subsection{Time span window}{
 
-\code{span} applies an additive time shift to interval boundaries. A single
-numeric value is recycled: \code{span = 60} becomes \code{c(0, 60)} and
-\code{span = -60} becomes \code{c(-60, 0)}.
+\code{span} additively expands the time span window around interval boundaries.
 \itemize{
-\item \strong{\code{start} + \code{end}}: \code{span[1]} shifts starts, \code{span[2]} shifts ends.
-For example, \verb{start = by_time(30), end = by_time(60), span = c(-5, 10)}
-gives an interval of \verb{[25, 70]}.
-\item \strong{\code{start} only} or \strong{\code{end} only}: both span values apply to the single
-boundary, like a window around an event. For example,
-\verb{start = by_time(30), span = c(-5, 60)} gives \verb{[25, 90]}.
+\item A two-value vector expands the \code{start} and \code{end}, respectively:
+\code{span = c(-60, 60)} expands the \code{start} earlier by \code{60}, and the \code{end}
+later by \code{60}. For example,
+\verb{start = by_time(30), end = by_time(60), span = c(-5, 10)} returns an
+interval of \verb{[25, 70]}.
+\item A single numeric value is recycled according to the sign: \code{span = -60}
+becomes \code{c(-60, 0)} to expand the \code{start} earlier. \code{span = 60} becomes
+\code{c(0, 60)} to expand the \code{end} later.
+\item If only \code{start} is specified alone, both span values expand the single
+boundary window: \verb{start = by_time(30), span = c(-5, 60)} returns
+\verb{[25, 90]}.
 }
 }
 
-\subsection{Per-interval \code{nirs_channels} for ensemble-averaging}{
+\subsection{Per-interval nirs_channels for ensemble-averaging}{
 
 When \code{event_groups = "ensemble"} or a list of numeric grouped intervals,
 \code{nirs_channels} can be specified as a list of column names to override
-ensemble-averaging across interval. For example, to exclude a bad channel
+ensemble-averaging across interval. For example, to exclude a channel
 in one interval:
 
 \if{html}{\out{<div class="sourceCode r">}}\preformatted{nirs_channels = list(

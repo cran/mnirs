@@ -2,7 +2,7 @@
 % Please edit documentation in R/plot.mnirs.R
 \name{breaks_timespan}
 \alias{breaks_timespan}
-\title{Breaks for timespan data}
+\title{Breaks for time span data}
 \usage{
 breaks_timespan(unit = c("secs", "mins", "hours", "days", "weeks"), n = 5)
 }
@@ -17,7 +17,7 @@ than requested.}
 Returns a function for generating breaks.
 }
 \description{
-Pretty timespan breaks for plotting in units of 5, 15, 30, 60 sec, etc.
+Pretty time span breaks for plotting in units of 5, 15, 30, 60 sec, etc.
 Modified from \code{\link[scales:breaks_timespan]{scales::breaks_timespan()}}.
 }
 \examples{

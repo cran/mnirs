@@ -2,7 +2,7 @@
 % Please edit documentation in R/plot.mnirs.R
 \name{format_hmmss}
 \alias{format_hmmss}
-\title{Format timespan data as h:mm:ss}
+\title{Format time span data as h:mm:ss}
 \usage{
 format_hmmss(x)
 }
@@ -13,7 +13,7 @@ format_hmmss(x)
 A character vector the same length as \code{x}.
 }
 \description{
-Convert numeric timespan data to \code{h:mm:ss} format for pretty plotting.
+Convert numeric time span data to \code{h:mm:ss} format for pretty plotting.
 Inspired by \code{\link[ggplot2:scale_date]{ggplot2::scale_x_time()}}.
 }
 \details{

@@ -4,7 +4,6 @@
 
 # pak::pak("jemarnold/mnirs") ## install development version
 library(ggplot2)   ## for plotting
-library(patchwork) ## for plotting
 library(mnirs)
 
 
@@ -187,7 +186,7 @@ distinct <- extract_intervals(
     zero_time = FALSE           ## return original time values
 )
 
-plot(distinct[[1L]], time_labels = TRUE) + plot(distinct[[2L]], time_labels = TRUE)
+plot(distinct, time_labels = TRUE)
 
 
 ## -----------------------------------------------------------------------------
@@ -201,6 +200,6 @@ ensemble <- extract_intervals(
     zero_time = TRUE            ## re-calculate common time to start from `0`
 )
 
-plot(ensemble[[1L]], time_labels = TRUE) + 
+plot(ensemble, time_labels = TRUE) + 
     geom_vline(xintercept = 0, linetype = "dotted")
 

@@ -284,6 +284,31 @@ test_that("detect_device_channels() detects known channels for device", {
     expect_equal(result$time_channel, device_patterns$Moxy$time_channel)
 })
 
+test_that("detect_device_channels() detects known channels for PerfPro", {
+    file_path <- test_path("testdata/perfpro-mre.xlsx")
+    skip_if_not(file.exists(file_path), "testdata not available")
+
+    data <- read_file(file_path)
+    detected_list <- detect_mnirs_device(data)
+    nirs_device <- detected_list$nirs_device
+    header_row <- detected_list$header_row
+
+    expect_match(nirs_device, "PerfPro")
+    expect_equal(header_row, 3)
+
+    result <- detect_device_channels(
+        data,
+        header_row,
+        nirs_device,
+        nirs_channels = NULL,
+        time_channel = NULL,
+        verbose = FALSE
+    )
+
+    expect_equal(result$nirs_channels, "SmO2 (1614)")
+    expect_equal(result$time_channel, "Time")
+})
+
 test_that("detect_device_channels() user time_channel overrides device default", {
     result <- detect_device_channels(
         nirs_device = "Moxy",
@@ -1071,7 +1096,7 @@ test_that("parse_time_channel() parses ISO 8601 character timestamps to numeric"
     expect_equal(result$data$time, c(0, 1))
 })
 
-test_that("parse_time_channel() parses various date-time formats to numeric", {
+test_that("parse_time_channel() parses date-time formats to numeric", {
     formats <- list(
         c("2025-01-01 10:00:00", "2025-01-01 10:00:01"),
         c("2025/01/01 10:00:00", "2025/01/01 10:00:01"),
@@ -1086,7 +1111,7 @@ test_that("parse_time_channel() parses various date-time formats to numeric", {
             stringsAsFactors = FALSE
         )
         result <- parse_time_channel(data, "time")
-        expect_type(result$data$time, "double")
+        expect_equal(result$data$time[1L], 0)
     }
 })
 
@@ -1099,7 +1124,6 @@ test_that("parse_time_channel() parses time-only H:MM:SS character format", {
 
     result <- parse_time_channel(data, "time")
 
-    expect_type(result$data$time, "double")
     expect_equal(result$data$time, c(0, 1))
 })
 
@@ -1112,9 +1136,8 @@ test_that("parse_time_channel() handles milliseconds in timestamps", {
 
     result <- parse_time_channel(data, "time")
 
-    expect_type(result$data$time, "double")
-    expect_true(result$data$time[2] > 1 & result$data$time[2] < 2)
     expect_equal(result$data$time[1], 0)
+    expect_true(result$data$time[2] > 1 & result$data$time[2] < 2)
 })
 
 test_that("parse_time_channel() converts POSIXct to numeric seconds from zero", {
@@ -1224,12 +1247,12 @@ test_that("parse_time_channel() add_timestamp=TRUE with no timestamps skips colu
     expect_null(result$start_timestamp)
 })
 
-test_that("parse_time_channel works on fractional unix time", {
+test_that("parse_time_channel() works on fractional unix time", {
     ## Moxy.csv saved as excel will coerce date-time
     ## to numeric fractional Unix time.
     file_path <- test_path("testdata/moxy-occlusion.xlsx")
     skip_if_not(file.exists(file_path), "testdata not available")
-    
+
     data <- suppressMessages(readxl::read_excel(file_path)[-(1:2), 1:2])
     names(data)[2L] <- "time"
     data$time <- as.numeric(data$time)
@@ -1246,7 +1269,95 @@ test_that("parse_time_channel works on fractional unix time", {
     expect_equal(median(diff(result$data$time)), 2)
     expect_equal(class(result$data$timestamp), c("POSIXct", "POSIXt"))
     expect_equal(class(result$start_timestamp), c("POSIXct", "POSIXt"))
-    expect_equal(as.character(result$start_timestamp), "1970-01-01 13:52:59")
+    ## should return today's date, local time zone, precise timestamp
+    expect_equal(as.Date(result$start_timestamp), Sys.Date())
+    expect_equal(format(result$start_timestamp, "%Z"), format(Sys.time(), "%Z"))
+    expect_equal(format(result$start_timestamp, "%H:%M:%OS"), "13:52:59")
+})
+
+test_that("parse_time_channel() returns local time zonel", {
+    perfpro <- test_path("testdata/perfpro-mre.xlsx")
+    moxy_occl <- test_path("testdata/moxy-occlusion.xlsx")
+    vo2master <- test_path("testdata/vo2master.csv")
+    skip_if_not(file.exists(perfpro), "testdata not available")
+    skip("run in local time PDT/PST zone")
+    
+    file_list <- c(
+        perfpro, ## today's date, 0:00:00
+        moxy_occl, ## today's date, 13:52:59
+        example_mnirs("moxy_intervals"), ## today's date, 13:17:13
+        example_mnirs("moxy_ramp") ## today's date 0:29:00.41
+    )
+
+    timestamp_list <- list()
+    for (.file in file_list) {
+        # .file = file_list[3]
+        data <- read_file(.file)
+        detected_list <- detect_mnirs_device(data)
+        nirs_device <- detected_list$nirs_device
+        header_row <- detected_list$header_row
+
+        channels <- detect_device_channels(
+            data,
+            header_row,
+            nirs_device,
+            nirs_channels = NULL,
+            time_channel = NULL,
+            keep_all = FALSE,
+            verbose = FALSE
+        )
+        nirs_channels <- channels$nirs_channels
+        time_channel <- channels$time_channel
+        keep_all <- channels$keep_all
+
+        table_list <- read_data_table(data, nirs_channels, header_row)
+        data <- table_list$data_table
+        file_header <- table_list$file_header
+
+        start_timestamp <- extract_start_timestamp(file_header)
+
+        time_channel <- detect_time_channel(
+            data,
+            time_channel,
+            nirs_device,
+            verbose = FALSE
+        )
+
+        renamed_list <- select_rename_data(
+            data,
+            nirs_channels,
+            time_channel,
+            event_channel = NULL,
+            keep_all,
+            verbose = FALSE
+        )
+        data <- renamed_list$data
+        nirs_renamed <- renamed_list$nirs_channel
+        time_renamed <- renamed_list$time_channel
+        event_renamed <- renamed_list$event_channel
+
+        data <- remove_empty_rows_cols(data)
+        data <- convert_type(data, time_renamed, event_renamed, verbose = FALSE)
+        time_list <- parse_time_channel(
+            data,
+            time_renamed,
+            start_timestamp,
+            add_timestamp = TRUE,
+            zero_time = TRUE
+        )
+
+        expect_true(
+            format(time_list$start_timestamp, "%Z") %in% c("PDT", "PST")
+        )
+        timestamp_list <- c(timestamp_list, list(time_list$start_timestamp))
+    }
+    timestamp_list <- do.call(c, timestamp_list)
+    expect_equal(as.Date(timestamp_list), rep(Sys.Date(), 4))
+    
+    expect_equal(
+        format(timestamp_list, "%H:%M:%OS2"),
+        c("00:00:00.00", "13:52:59.00", "13:17:13.00", "00:29:00.41")
+    )
 })
 
 ## parse_sample_rate() ================================================
@@ -1913,14 +2024,14 @@ test_that("read_mnirs oxysoft works", {
 })
 
 test_that("read_mnirs Oxysoft Portamon works", {
-    file_path <- example_mnirs("portamon")
+    file_path <- example_mnirs("portamon-oxcap")
 
     expect_equal(
         read_file(file_path) |>
             detect_mnirs_device(),
         list(
             nirs_device = "Artinis",
-            header_row = 43
+            header_row = 42
         )
     )
 
@@ -2083,6 +2194,61 @@ test_that("read_mnirs VO2master with ',' decimals returns numeric", {
     expect_equal(attr(df, "sample_rate"), 1)
 })
 
+## PerfPro ========================================================
+test_that("read_mnirs PerfPro", {
+    file_path <- test_path("testdata/perfpro-mre.xlsx")
+    skip_if_not(file.exists(file_path), "testdata not available")
+
+    data <- read_file(file_path)
+    detected_list <- detect_mnirs_device(data)
+    nirs_device <- detected_list$nirs_device
+    header_row <- detected_list$header_row
+
+    expect_equal(nirs_device, "PerfPro")
+    expect_equal(header_row, 3)
+
+    expect_message(
+        channels <- detect_device_channels(
+            data,
+            header_row,
+            nirs_device,
+            nirs_channels = NULL,
+            time_channel = NULL,
+            keep_all = FALSE,
+            verbose = TRUE
+        ),
+        "PerfPro"
+    )
+
+    expect_equal(channels$time_channel, "Time")
+    expect_equal(channels$nirs_channels, "SmO2 (1614)")
+    expect_true(channels$keep_all)
+
+    ## integrated test
+    expect_message(
+        df <- read_mnirs(
+            file_path = file_path,
+            nirs_channels = c(smo2 = "SmO2 (1614)"),
+            time_channel = c(time = "Time"),
+            add_timestamp = TRUE
+        ),
+        "Estimated.*sample_rate.*2"
+    )
+
+    expect_type(df$time, "double")
+    expect_true(inherits(df$timestamp, "POSIXct"))
+    expect_equal(df$time[1L], 0)
+    expect_true(all(diff(df$time[1:25]) < 1))
+    ## smo2 should be numeric from "27,90"
+    expect_type(df$smo2, "double")
+
+    expect_true(all(
+        c("nirs_channels", "time_channel", "sample_rate") %in%
+            names(attributes(df))
+    ))
+    expect_equal(attr(df, "sample_rate"), 2)
+})
+
 ## create_mnirs_data() ==================================================
 
 test_that("create_mnirs_data edge cases", {
@@ -2100,4 +2266,40 @@ test_that("create_mnirs_data edge cases", {
     expect_null(attr(df, "sample_rate"))
     expect_equal(attr(df_meta, "sample_rate"), 1)
     expect_equal(attr(df_meta, "nirs_channels"), c("A", "B"))
+})
+
+test_that("create_mnirs_data accepts NSE for *_channels", {
+    df <- tibble(A = 1:2, B = 3:4, C = 5:6, lap = c("a", "b"))
+
+    ## bare symbols
+    df_sym <- create_mnirs_data(
+        df,
+        nirs_channels = B,
+        time_channel = A,
+        event_channel = lap
+    )
+    expect_equal(attr(df_sym, "nirs_channels"), "B")
+    expect_equal(attr(df_sym, "time_channel"), "A")
+    expect_equal(attr(df_sym, "event_channel"), "lap")
+
+    ## c() expression
+    df_c <- create_mnirs_data(df, nirs_channels = c(B, C))
+    expect_equal(attr(df_c, "nirs_channels"), c("B", "C"))
+
+    ## tidyselect helper
+    df_sel <- create_mnirs_data(
+        df, nirs_channels = tidyselect::starts_with("B")
+    )
+    expect_equal(attr(df_sel, "nirs_channels"), "B")
+
+    ## external character vector
+    chans <- c("B", "C")
+    df_ext <- create_mnirs_data(df, nirs_channels = chans)
+    expect_equal(attr(df_ext, "nirs_channels"), c("B", "C"))
+
+    ## list form still works (single list argument)
+    meta <- list(nirs_channels = c("B", "C"), sample_rate = 2)
+    df_list <- create_mnirs_data(df, meta)
+    expect_equal(attr(df_list, "nirs_channels"), c("B", "C"))
+    expect_equal(attr(df_list, "sample_rate"), 2)
 })

@@ -539,9 +539,13 @@ test_that("estimate_sample_rate works correctly", {
     set.seed(13)
     x <- seq(0, 1, by = 0.02)
     x <- x + rnorm(length(x), 0, 0.001)
-    expect_equal(estimate_sample_rate(x), 50, tolerance = 1)
     expect_true(estimate_sample_rate(x) %in% c(49.5, 50, 50.5))
-    expect_equal(estimate_sample_rate(x), 50, tolerance = 1)
+    expect_true(
+        all.equal(estimate_sample_rate(x), 50, tolerance = 1, scale = 1)
+    )
+    expect_true(
+        all.equal(estimate_sample_rate(x), 50, tolerance = 1, scale = 1)
+    )
 
     # With NAs in diffs (not in x directly, as diff removes one element)
     time_with_gaps <- c(0, 0.01, NA, 0.03, 0.04)
@@ -573,7 +577,7 @@ test_that("validate_sample_rate() uses metadata when NULL", {
 test_that("validate_sample_rate() uses explicit value with warning when provided", {
     data <- create_test_data(sample_rate = 10)
     expect_equal(validate_sample_rate(data, "time", 20), 20) |>
-        expect_warning("appears to be inconsistent with estimated")
+        expect_warning("appears to be inconsistent")
     ## uses explicit without warning
     expect_equal(validate_sample_rate(data, "time", 20, verbose = FALSE), 20) |>
         expect_silent()

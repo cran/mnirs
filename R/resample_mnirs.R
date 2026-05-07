@@ -108,14 +108,15 @@ resample_mnirs <- function(
     if (is.null(resample_rate)) {
         resample_rate <- sample_rate
     }
-    resample_time <- 1 / resample_rate
     method <- match.arg(method)
 
     ## calculate resampling parameters  ===================================
+    resample_time <- 1 / resample_rate
     colnames <- names(data)
     time_vec <- data[[time_channel]]
-    time_range <- floor(range(time_vec, na.rm = TRUE) * sample_rate) /
-        sample_rate
+    time_range <- range(time_vec, na.rm = TRUE) * resample_rate
+    time_range <- c(floor(time_range[1L]), round(time_range[2L])) / 
+        resample_rate
     resampled_times <- seq(time_range[1L], time_range[2L], by = resample_time)
     result <- setNames(data.frame(resampled_times), time_channel)
 
@@ -159,16 +160,16 @@ resample_mnirs <- function(
         if (method == "none") {
             ## tolerance-matched index computed above
             result[idx_cols] <- lapply(data[idx_cols], \(.x) .x[idx])
-        } else if (resample_rate < sample_rate) {
+        } else if (length(resampled_times) < length(time_vec)) {
             ## down-sample: first non-NA per bin
-            bin <- findInterval(
+            idx <- findInterval(
                 time_vec, resampled_times, rightmost.closed = FALSE
             )
-            bin[bin == 0] <- 1
+            idx[idx == 0] <- 1
             result[idx_cols] <- lapply(data[idx_cols], \(.x) {
                 unname(unsplit(
-                    lapply(split(.x, bin), \(.v) .v[!is.na(.v)][1L]),
-                    unique(bin)
+                    lapply(split(.x, idx), \(.v) .v[!is.na(.v)][1L]),
+                    unique(idx)
                 ))
             })
         } else {
@@ -186,9 +187,7 @@ resample_mnirs <- function(
     metadata$sample_rate <- resample_rate
 
     if (verbose) {
-        cli_inform(c(
-            "i" = "Output is resampled at {.val {resample_rate}} Hz."
-        ))
+        cli_inform(c("i" = "Output is resampled at {.val {resample_rate}} Hz."))
     }
 
     ## column order same as input

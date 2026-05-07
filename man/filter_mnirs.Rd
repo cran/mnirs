@@ -28,8 +28,8 @@ operate on. Must match column names in \code{data} exactly.
 used.
 }}
 
-\item{time_channel}{A character string giving the name of the time or sample
-column. Must match a column name in \code{data} exactly.
+\item{time_channel}{A character string naming the time or sample column.
+Must match a column name in \code{data} exactly.
 \itemize{
 \item If \code{NULL} (default), the \code{time_channel} metadata attribute of \code{data} is
 used.
@@ -48,8 +48,8 @@ returned vector. If \code{TRUE}, ignores \code{NA}s and processes available vali
 samples within the local window. May return errors or warnings. (see
 \emph{Details}).}
 
-\item{verbose}{Logical. Default is \code{TRUE}. Will display or silence (if
-\code{FALSE}) warnings and information messages helpful for troubleshooting. A
+\item{verbose}{Logical. Default is \code{TRUE}. Display or silence (if \code{FALSE})
+warnings and information messages helpful for troubleshooting. Ad
 global default can be set via \code{options(mnirs.verbose = FALSE)}.}
 
 \item{...}{Additional method-specific arguments must be specified
@@ -69,10 +69,9 @@ using either:
 }
 }
 \details{
-\subsection{filtering methods}{
-\subsection{\code{method = "smooth_spline"}}{
+\subsection{method = "smooth_spline"}{
 
-Aliases: \code{c("smooth spline", "spline")}
+Aliases: \code{method = c("smooth spline", "spline")}
 
 Applies a non-parametric cubic smoothing spline from
 \code{\link[stats:smooth.spline]{stats::smooth.spline()}}. Smoothing is defined by the parameter \code{spar},
@@ -88,9 +87,11 @@ Additional arguments (\code{...}) accepted when \code{method = "smooth_spline"}:
 \code{\link[stats:smooth.spline]{stats::smooth.spline()}}. If \code{NULL} (\emph{default}), automatically
 determined via penalised log likelihood.}
 }
-\subsection{\code{method = "butterworth"}}{
+}
 
-Aliases: \code{c("butter")}
+\subsection{method = "butterworth"}{
+
+Aliases: \code{method = c("butter")}
 
 Applies a centred (two-pass symmetrical) Butterworth digital filter
 from \code{\link[signal:butter]{signal::butter()}} and \code{\link[signal:filtfilt]{signal::filtfilt()}}.
@@ -143,9 +144,9 @@ See \code{\link[=filter_butter]{filter_butter()}}.}
 }
 }
 
-\subsection{\code{method = "moving_average"}}{
+\subsection{method = "moving_average"}{
 
-Aliases: \code{c("moving average", "ma")}
+Aliases: \code{method = c("moving average", "ma")}
 
 Applies a centred (symmetrical) moving average filter in a local
 window, defined by either \code{width} as the number of samples around
@@ -164,10 +165,6 @@ where a full window of valid (non-\code{NA}) samples are available.
 If \code{TRUE}, ignores \code{NA} and allows calculation over partial windows
 at the edges of the data.}
 }
-}
-
-}
-
 }
 
 \subsection{Missing values}{
@@ -193,7 +190,7 @@ data <- read_mnirs(
     replace_mnirs(
         invalid_values = c(0, 100),
         outlier_cutoff = 3,
-        width = 10,
+        width = 7,
         verbose = FALSE
     )
 

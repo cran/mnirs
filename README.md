@@ -59,7 +59,6 @@ processing steps. Enjoy!
 
 ``` r
 library(ggplot2) ## for plotting
-library(patchwork) ## for plotting
 library(mnirs)
 
 ## {mnirs} includes sample files from a few mNIRS devices
@@ -87,27 +86,27 @@ data_raw <- read_mnirs(
 #> ! Estimated `sample_rate` = 2 Hz.
 #> ℹ Define `sample_rate` explicitly to override.
 #> Warning: ! Duplicate or irregular `time_channel` samples detected.
-#> ℹ Investigate at `time` = 211.99 and 1184.
+#> ℹ Investigate at `time` = 211.59 and 1183.6.
 #> ℹ Re-sample with `mnirs::resample_mnirs()`.
 
 ## Note the above info message that sample_rate was estimated correctly at 2 Hz 👆
 ## ignore the warnings about irregular sampling for now, we will resample later
 
 data_raw
-#> # A tibble: 2,203 × 3
+#> # A tibble: 2,202 × 3
 #>     time smo2_left smo2_right
 #>    <dbl>     <dbl>      <dbl>
 #>  1 0            54         68
-#>  2 0.400        54         68
-#>  3 0.960        54         68
-#>  4 1.51         54         66
-#>  5 2.06         54         66
-#>  6 2.61         54         66
-#>  7 3.16         54         66
-#>  8 3.71         57         67
-#>  9 4.26         57         67
-#> 10 4.81         57         67
-#> # ℹ 2,193 more rows
+#>  2 0.560        54         68
+#>  3 1.11         54         66
+#>  4 1.66         54         66
+#>  5 2.21         54         66
+#>  6 2.76         54         66
+#>  7 3.31         57         67
+#>  8 3.86         57         67
+#>  9 4.41         57         67
+#> 10 4.96         57         67
+#> # ℹ 2,192 more rows
 
 ## note the `time_labels` plot argument to display time values as `h:mm:ss`
 plot(
@@ -153,12 +152,12 @@ data_resampled
 #>    <dbl>     <dbl>      <dbl>
 #>  1   0        54         68  
 #>  2   0.5      54         68  
-#>  3   1        54         67.9
-#>  4   1.5      54         66.0
+#>  3   1        54         66.4
+#>  4   1.5      54         66  
 #>  5   2        54         66  
 #>  6   2.5      54         66  
-#>  7   3        54         66  
-#>  8   3.5      55.9       66.6
+#>  7   3        55.3       66.4
+#>  8   3.5      57         67  
 #>  9   4        57         67  
 #> 10   4.5      57         67  
 #> # ℹ 2,409 more rows
@@ -293,7 +292,7 @@ distinct <- extract_intervals(
     zero_time = FALSE           ## return original time values
 )
 
-plot(distinct[[1L]], time_labels = TRUE) + plot(distinct[[2L]], time_labels = TRUE)
+plot(distinct, time_labels = TRUE)
 ```
 
 <img src="man/figures/README-extract_intervals_distinct-1.png" alt="" width="100%" />
@@ -309,7 +308,7 @@ ensemble <- extract_intervals(
     zero_time = TRUE            ## re-calculate common time to start from `0`
 )
 
-plot(ensemble[[1L]], time_labels = TRUE) + 
+plot(ensemble, time_labels = TRUE) + 
     geom_vline(xintercept = 0, linetype = "dotted")
 ```
 
@@ -321,7 +320,7 @@ plot(ensemble[[1L]], time_labels = TRUE) +
 
   - Monoexponential & sigmoidal non-linear curve fitting
 
-  - Non-parametric half-response time & slope analysis
+  - Non-parametric response time & slope analysis
 
 - Critical oxygenation breakpoint analysis
 
@@ -344,7 +343,7 @@ devices, and compatibility will improve with continued development.
 Currently, it has been tested successfully with mNIRS data exported from
 the following devices and apps:
 
-- [Artinis](https://www.artinis.com/oxysoft) Oxysoft software (.csv and
+- [Artinis](https://artinis.com/oxysoft) Oxysoft software (.csv and
   .xlsx)
 - [Moxy](https://www.moxymonitor.com/) direct export (.csv)
 - [PerfPro](https://perfprostudio.com/) PC software (.xlsx)

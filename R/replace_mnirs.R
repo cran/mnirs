@@ -19,14 +19,14 @@
 #'   - Lower values are more sensitive and flag more outliers; higher values
 #'     are more conservative.
 #'   - `outlier_cutoff = 3` Pearson's 3 sigma edit rule.
-#'     `outlier_cutoff = 2` approximates a Tukey-style 1.5×IQR rule.
+#'     `outlier_cutoff = 2` approximates a Tukey-style 1.5*IQR rule.
 #'     `outlier_cutoff = 0` Tukey's median filter.
 #'
 #' @param width An integer defining the local window in number of samples
 #'   centred on `idx`, between
 #'   `[idx - floor(width/2), idx + floor(width/2)]`.
 #'
-#' @param span A numeric value defining the local window timespan around
+#' @param span A numeric value defining the local window time span around
 #'   `idx` in units of `time_channel` or `t`, between
 #'   `[t - span/2, t + span/2]`.
 #'
@@ -58,7 +58,7 @@
 #' `replace_outliers()` and `replace_missing()` (when `method = "median"`)
 #' operate over a local rolling window for outlier detection and median
 #' interpolation. The window is specified by either `width` as the number
-#' of samples, or `span` as the timespan in units of `time_channel`.
+#' of samples, or `span` as the time span in units of `time_channel`.
 #' A partial window is calculated at the edges of the data.
 #'
 #' @returns `replace_mnirs()` return a [tibble][tibble::tibble-package] of 
@@ -87,7 +87,7 @@
 #'     invalid_values = 0,    ## known invalid values in the data
 #'     invalid_above = 90,    ## remove data spikes above 90
 #'     outlier_cutoff = 3,    ## Pearson's 3 sigma edit rule
-#'     width = 10,            ## window for outlier detection and interpolation
+#'     width = 7,            ## window for outlier detection and interpolation
 #'     method = "linear"      ## linear interpolation over NAs
 #' )
 #'
@@ -219,7 +219,7 @@ replace_mnirs <- function(
 #' @inheritParams replace_mnirs
 #'
 #' @details
-#' ## Replace invalid values with with `replace_invalid()`
+#' ## Replace invalid values with with replace_invalid()
 #' 
 #' Specific `invalid_values` can be replaced, such as `c(0, 100, 102.3)`.
 #' Data ranges can be replaced with cutoff values specified by `invalid_above` 
@@ -304,10 +304,10 @@ replace_invalid <- function(
 #' @inheritParams replace_invalid
 #'
 #' @details
-#' ## Outlier detection with `replace_outliers()`
+#' ## Outlier detection with replace_outliers()
 #'
 #' Rolling local medians are computed across `x` within a window defined
-#' by `width` (number of samples) or `span` (timespan in units of `t`).
+#' by `width` (number of samples) or `span` (time span in units of `t`).
 #'
 #' Outliers are detected with robust median absolute deviation (MAD),
 #' adapted from `pracma::hampel()`. Deviations equal to or less than the
@@ -324,14 +324,14 @@ replace_invalid <- function(
 #' Existing `NA` values in `x` are *not* replaced. They are passed
 #' through to the returned vector. See [replace_missing()].
 #'
-#' ## Choosing `outlier_cutoff`
+#' ## Choosing outlier_cutoff
 #'
 #' `outlier_cutoff` is the number of (MAD-normalised) standard deviations
 #' from the local median. Higher values are more conservative; lower
 #' values flag more outliers.
-#'   - `outlier_cutoff = 3` — Pearson's 3 sigma edit rule (default).
-#'   - `outlier_cutoff = 2` — approximately Tukey-style 1.5×IQR rule.
-#'   - `outlier_cutoff = 0` — Tukey's median filter (every point
+#'   - `outlier_cutoff = 3` -- Pearson's 3 sigma edit rule (default).
+#'   - `outlier_cutoff = 2` -- approximately Tukey-style 1.5*IQR rule.
+#'   - `outlier_cutoff = 0` -- Tukey's median filter (every point
 #'     replaced by local median).
 #'
 #' @returns `replace_outliers()` returns a numeric vector the same length as 
@@ -391,7 +391,7 @@ replace_outliers <- function(
 #' @inheritParams replace_invalid
 #'
 #' @details
-#' ## Interpolation with `replace_missing()`
+#' ## Interpolation with replace_missing()
 #'
 #' `method = "linear"` and `method = "locf"` use [stats::approx()] with
 #' `rule = 2`, so leading `NA`s are filled by *"nocb"*
@@ -399,10 +399,10 @@ replace_outliers <- function(
 #'
 #' `method = "median"` calculates the local median of valid (non-`NA`)
 #' values to either side of `NA`s, within a window defined by `width`
-#' (number of samples) or `span` (timespan in units of `t`). Sequential
+#' (number of samples) or `span` (time span in units of `t`). Sequential
 #' `NA`s are all replaced by the same median value.
 #'
-#' ## Edge behaviour for `method = "median"`
+#' ## Edge behaviour for method = "median"
 #'
 #' If there are no valid values within `span` to one side of the `NA`,
 #' the median of the other side is used (i.e. for leading and trailing

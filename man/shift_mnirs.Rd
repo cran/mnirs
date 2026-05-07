@@ -27,8 +27,8 @@ operate on. Must match column names in \code{data} exactly.
 used.
 }}
 
-\item{time_channel}{A character string giving the name of the time or sample
-column. Must match a column name in \code{data} exactly.
+\item{time_channel}{A character string naming the time or sample column.
+Must match a column name in \code{data} exactly.
 \itemize{
 \item If \code{NULL} (default), the \code{time_channel} metadata attribute of \code{data} is
 used.
@@ -44,7 +44,7 @@ channels will be shifted, e.g. shift all values up by 10 units.}
 centred on \code{idx}, between
 \verb{[idx - floor(width/2), idx + floor(width/2)]}.}
 
-\item{span}{A numeric value defining the local window timespan around
+\item{span}{A numeric value defining the local window time span around
 \code{idx} in units of \code{time_channel} or \code{t}, between
 \verb{[t - span/2, t + span/2]}.}
 
@@ -58,8 +58,8 @@ specified values.}
 values.}
 }}
 
-\item{verbose}{Logical. Default is \code{TRUE}. Will display or silence (if
-\code{FALSE}) warnings and information messages helpful for troubleshooting. A
+\item{verbose}{Logical. Default is \code{TRUE}. Display or silence (if \code{FALSE})
+warnings and information messages helpful for troubleshooting. Ad
 global default can be set via \code{options(mnirs.verbose = FALSE)}.}
 }
 \value{
@@ -107,10 +107,10 @@ data <- read_mnirs(
     time_channel = c(time = "hh:mm:ss"),
     verbose = FALSE
 ) |>
-    shift_mnirs(           ## un-grouped nirs channels to shift separately 
+    shift_mnirs(        ## un-grouped nirs channels to shift separately 
         nirs_channels = list(smo2_left, smo2_right), 
-        to = 0,            ## NIRS values will be shifted to zero
-        span = 120,        ## shift the *first* 120 sec of data to zero
+        to = 0,         ## NIRS values will be shifted to zero
+        span = 120,     ## shift the *first* 120 sec of data to zero
         position = "first"
     )
 

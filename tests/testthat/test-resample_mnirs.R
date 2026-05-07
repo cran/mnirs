@@ -88,10 +88,10 @@ test_that("resample_mnirs handles resample_rate == sample_rate", {
     set.seed(13)
     data <- data.frame(time = 1:3 + rnorm(3, 0, 0.1), value = c(10, 20, 30))
     result <- resample_mnirs(data, "time", 1, 1, verbose = FALSE)
-    expect_equal(result$value, data$value, tolerance = 1)
+    expect_true(all.equal(result$value, data$value, tolerance = 1, scale = 1))
 
     result <- resample_mnirs(data, "time", 1, verbose = FALSE)
-    expect_equal(result$value, data$value, tolerance = 1)
+    expect_true(all.equal(result$value, data$value, tolerance = 1, scale = 1))
 
     result <- resample_mnirs(
         data,
@@ -283,6 +283,28 @@ test_that("non-numeric columns: character and factor types", {
     expect_s3_class(result$factor_col, "factor")
 })
 
+test_that("resample_mnirs forward-fills when rates exceed actual rate", {
+    data <- data.frame(
+        time = c(0, 1, 2), ## actual sample_rate == 1
+        value = c(10, 20, 30),
+        category = c("A", "B", "C")
+    )
+
+    result <- resample_mnirs(
+        data,
+        time_channel = "time",
+        sample_rate = 5,
+        resample_rate = 2,
+        method = "linear",
+        verbose = FALSE
+    )
+
+    expect_equal(nrow(result), length(seq(0, 2, by = 1 / 2)))
+    expect_false(anyNA(result$category))
+    expect_equal(result$category, c("A", "A", "B", "B", "C"))
+})
+
+
 test_that("resample_mnirs handles edge cases", {
     ## Intentional that this should return error, even though technically
     ## resampling from one sample to one sample should be ok
@@ -303,21 +325,19 @@ test_that("resample_mnirs works on Moxy", {
         verbose = FALSE
     )[1:15, ]
 
-    df$time <- df$time + 0.01
-
     ## works with metadata
     expect_message(
         result <- resample_mnirs(df, resample_rate = 1),
         "Output is resampled at .*1.*Hz"
     )
-    expect_equal(result$time, 0:7)
+    expect_equal(result$time, 0:8)
     expect_s3_class(result, "mnirs")
 
     ## time-weighted average
     df2 <- df |>
         dplyr::mutate(
             diff = c(diff(time), diff(time)[length(diff(time))]),
-            time = floor(time * 1) / 1,
+            time = round(time * 1) / 1,
         ) |>
         dplyr::summarise(
             .by = time,
@@ -325,7 +345,9 @@ test_that("resample_mnirs works on Moxy", {
         )
 
     ## expect close enough to time-weighted average
-    expect_equal(result, df2, ignore_attr = TRUE, tolerance = 2)
+    expect_true(all.equal(
+        result, df2, tolerance = 1, scale = 1, check.attributes = FALSE
+    ))
 
     ## should overwrite metadata
     df3 <- resample_mnirs(

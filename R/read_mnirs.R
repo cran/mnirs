@@ -50,8 +50,8 @@
 #'     all columns in the file data table will be returned, as an exploratory
 #'     option.
 #'
-#' @param verbose Logical. Default is `TRUE`. Will display or silence (if
-#'   `FALSE`) warnings and information messages helpful for troubleshooting. A
+#' @param verbose Logical. Default is `TRUE`. Display or silence (if `FALSE`)
+#'   warnings and information messages helpful for troubleshooting. Ad
 #'   global default can be set via `options(mnirs.verbose = FALSE)`.
 #'
 #' @details
@@ -143,7 +143,13 @@ read_mnirs <- function(
     ## resolve channels: use user input if provided, otherwise detect from
     ## known device channel names. Errors if neither available.
     channels <- detect_device_channels(
-        nirs_device, nirs_channels, time_channel, keep_all, verbose
+        data,
+        header_row,
+        nirs_device,
+        nirs_channels,
+        time_channel,
+        keep_all,
+        verbose
     )
     nirs_channels <- channels$nirs_channels
     time_channel <- channels$time_channel
@@ -216,7 +222,7 @@ read_mnirs <- function(
 }
 
 #' Metadata names  of class `"mnirs"`, retrieved with `attr()`
-#' @keywords: internal
+#' @keywords internal
 mnirs_metadata <- c(
     "nirs_device",
     "nirs_channels",
@@ -278,9 +284,19 @@ mnirs_metadata <- c(
 create_mnirs_data <- function(data, ...) {
     validate_mnirs_data(data, 1L)
 
+    ## tidy eval ========================================================
+    ## capture quosures so bare symbols / tidyselect resolve against `data`
+    dots <- rlang::enquos(...)
+    args <- Map(\(.q, .nm) {
+        if (.nm %in% c("nirs_channels", "time_channel", "event_channel")) {
+            parse_channel_name(.q, data)
+        } else {
+            rlang::eval_tidy(.q)
+        }
+    }, dots, names(dots) %||% rep("", length(dots)))
+
     ## overwrite existing attributes and add from incoming metadata
     ## incoming metadata from `...` can be either listed or un-listed
-    args <- list(...)
     incoming_metadata <- if (length(args) == 1L && is.list(args[[1L]])) {
         args[[1L]]
     } else {

@@ -3,12 +3,12 @@
 \name{recycle_span}
 \alias{recycle_span}
 \title{recycle a single-element span to c(before, after)
-positive → c(0, x), negative → c(x, 0)}
+positive -> c(0, x), negative -> c(x, 0)}
 \usage{
 recycle_span(span)
 }
 \description{
 recycle a single-element span to c(before, after)
-positive → c(0, x), negative → c(x, 0)
+positive -> c(0, x), negative -> c(x, 0)
 }
 \keyword{internal}

@@ -14,11 +14,12 @@
 )
 }
 \arguments{
-\item{x}{Object of class \emph{"mnirs"} returned from \code{\link[=create_mnirs_data]{create_mnirs_data()}}}
+\item{x}{Data frame or list of data frames of class \emph{"mnirs"} (e.g. from
+\code{\link[=extract_intervals]{extract_intervals()}}). List input produces a faceted plot with one
+panel per element.}
 
 \item{points}{Logical. Default is \code{FALSE}. If \code{TRUE} displays
-\code{ggplot2::geom_points()}. Otherwise only \code{ggplot2::geom_lines()}
-is displayed.}
+\code{ggplot2::geom_points()}. Otherwise displays \code{ggplot2::geom_lines()}.}
 
 \item{time_labels}{Logical. Default is \code{FALSE}. If \code{TRUE} displays x-axis
 time values formatted as \emph{"hh:mm:ss"} using \code{\link[=format_hmmss]{format_hmmss()}}. Otherwise,
@@ -36,19 +37,37 @@ and non-finite \code{c(Inf, -Inf, NaN)} from display.}
 A \link[ggplot2:ggplot]{ggplot2} object.
 }
 \description{
-Create a simple plot for objects returned from \code{\link[=create_mnirs_data]{create_mnirs_data()}}.
+Create a base plot for data frames or lists of data frames with class
+\emph{"mnirs"}.
+}
+\details{
+When \code{x} is a named list of \emph{"mnirs"} data frames, elements are bound into a
+single data frame and displayed as faceted panels via
+\code{\link[ggplot2:facet_wrap]{ggplot2::facet_wrap()}}.
+
+Arguments in \code{...} are currently passed to \code{\link[ggplot2:facet_wrap]{ggplot2::facet_wrap()}}
+formals, such as \code{nrow}, \code{ncol}, and \code{scales} for more precise control.
 }
 \examples{
 \dontshow{if (rlang::is_installed(c("ggplot2", "scales"))) withAutoprint(\{ # examplesIf}
 data <- read_mnirs(
-    file_path = example_mnirs("moxy_ramp"),
-    nirs_channels = c(smo2_left = "SmO2 Live",
-                      smo2_right = "SmO2 Live(2)"),
-    time_channel = c(time = "hh:mm:ss"),
+    example_mnirs("train.red"),
+    nirs_channels = c(smo2 = "SmO2"),
+    time_channel = c(time = "Timestamp (seconds passed)"),
     verbose = FALSE
 )
 
-## note the options to display time values as `h:mm:ss` with 8 breaks
-plot(data, time_labels = TRUE, n.breaks = 8)
+## plot time labels as "hh:mm:ss"
+plot(data, time_labels = TRUE)
+
+data_list <- extract_intervals(
+    data,
+    start = by_time(2452, 3168),
+    span = c(-60, 120),
+    verbose = FALSE
+)
+
+## plot a list of mnirs data frames as faceted panels
+plot(data_list, time_labels = TRUE)
 \dontshow{\}) # examplesIf}
 }

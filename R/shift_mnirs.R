@@ -63,10 +63,10 @@
 #'     time_channel = c(time = "hh:mm:ss"),
 #'     verbose = FALSE
 #' ) |>
-#'     shift_mnirs(           ## un-grouped nirs channels to shift separately 
+#'     shift_mnirs(        ## un-grouped nirs channels to shift separately 
 #'         nirs_channels = list(smo2_left, smo2_right), 
-#'         to = 0,            ## NIRS values will be shifted to zero
-#'         span = 120,        ## shift the *first* 120 sec of data to zero
+#'         to = 0,         ## NIRS values will be shifted to zero
+#'         span = 120,     ## shift the *first* 120 sec of data to zero
 #'         position = "first"
 #'     )
 #'

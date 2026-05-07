@@ -63,7 +63,6 @@ First, install and load the *`mnirs`* package and other required libraries.
 
 # pak::pak("jemarnold/mnirs") ## install development version
 library(ggplot2)   ## for plotting
-library(patchwork) ## for plotting
 library(mnirs)
 ```
 
@@ -406,7 +405,7 @@ For filtering vector data and more details about Butterworth filter parameters, 
 
 * `method = "moving_average"`
 
-    The simplest smoothing method is a moving average filter applied over a specified number of samples or timespan. Commonly, this might be a 5- or 15-second centred moving average.
+    The simplest smoothing method is a moving average filter applied over a specified number of samples or time span. Commonly, this might be a 5- or 15-second centred moving average.
 
 * `width` or `span`
 
@@ -672,7 +671,7 @@ distinct <- extract_intervals(
     zero_time = FALSE           ## return original time values
 )
 
-plot(distinct[[1L]], time_labels = TRUE) + plot(distinct[[2L]], time_labels = TRUE)
+plot(distinct, time_labels = TRUE)
 ```
 
 ```{r}
@@ -686,7 +685,7 @@ ensemble <- extract_intervals(
     zero_time = TRUE            ## re-calculate common time to start from `0`
 )
 
-plot(ensemble[[1L]], time_labels = TRUE) + 
+plot(ensemble, time_labels = TRUE) + 
     geom_vline(xintercept = 0, linetype = "dotted")
 ```
 

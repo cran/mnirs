@@ -66,8 +66,8 @@ operate on. Must match column names in \code{data} exactly.
 used.
 }}
 
-\item{time_channel}{A character string giving the name of the time or sample
-column. Must match a column name in \code{data} exactly.
+\item{time_channel}{A character string naming the time or sample column.
+Must match a column name in \code{data} exactly.
 \itemize{
 \item If \code{NULL} (default), the \code{time_channel} metadata attribute of \code{data} is
 used.
@@ -88,7 +88,7 @@ the number of standard deviations from the local median.
 \item Lower values are more sensitive and flag more outliers; higher values
 are more conservative.
 \item \code{outlier_cutoff = 3} Pearson's 3 sigma edit rule.
-\code{outlier_cutoff = 2} approximates a Tukey-style 1.5×IQR rule.
+\code{outlier_cutoff = 2} approximates a Tukey-style 1.5*IQR rule.
 \code{outlier_cutoff = 0} Tukey's median filter.
 }}
 
@@ -96,7 +96,7 @@ are more conservative.
 centred on \code{idx}, between
 \verb{[idx - floor(width/2), idx + floor(width/2)]}.}
 
-\item{span}{A numeric value defining the local window timespan around
+\item{span}{A numeric value defining the local window time span around
 \code{idx} in units of \code{time_channel} or \code{t}, between
 \verb{[t - span/2, t + span/2]}.}
 
@@ -114,8 +114,8 @@ values within a centred window defined by \code{width} or \code{span}.}
 \item{\code{"none"}}{Returns \code{NA}s without replacement.}
 }}
 
-\item{verbose}{Logical. Default is \code{TRUE}. Will display or silence (if
-\code{FALSE}) warnings and information messages helpful for troubleshooting. A
+\item{verbose}{Logical. Default is \code{TRUE}. Display or silence (if \code{FALSE})
+warnings and information messages helpful for troubleshooting. Ad
 global default can be set via \code{options(mnirs.verbose = FALSE)}.}
 
 \item{x}{A numeric vector of the response variable.}
@@ -165,11 +165,11 @@ listed in \code{nirs_channels} are passed through unprocessed.
 \code{replace_outliers()} and \code{replace_missing()} (when \code{method = "median"})
 operate over a local rolling window for outlier detection and median
 interpolation. The window is specified by either \code{width} as the number
-of samples, or \code{span} as the timespan in units of \code{time_channel}.
+of samples, or \code{span} as the time span in units of \code{time_channel}.
 A partial window is calculated at the edges of the data.
 }
 
-\subsection{Replace invalid values with with \code{replace_invalid()}}{
+\subsection{Replace invalid values with with replace_invalid()}{
 
 Specific \code{invalid_values} can be replaced, such as \code{c(0, 100, 102.3)}.
 Data ranges can be replaced with cutoff values specified by \code{invalid_above}
@@ -178,10 +178,10 @@ cutoff values (respectively) will be replaced, \emph{inclusive} of the cutoff
 values themselves.
 }
 
-\subsection{Outlier detection with \code{replace_outliers()}}{
+\subsection{Outlier detection with replace_outliers()}{
 
 Rolling local medians are computed across \code{x} within a window defined
-by \code{width} (number of samples) or \code{span} (timespan in units of \code{t}).
+by \code{width} (number of samples) or \code{span} (time span in units of \code{t}).
 
 Outliers are detected with robust median absolute deviation (MAD),
 adapted from \code{pracma::hampel()}. Deviations equal to or less than the
@@ -200,20 +200,20 @@ Existing \code{NA} values in \code{x} are \emph{not} replaced. They are passed
 through to the returned vector. See \code{\link[=replace_missing]{replace_missing()}}.
 }
 
-\subsection{Choosing \code{outlier_cutoff}}{
+\subsection{Choosing outlier_cutoff}{
 
 \code{outlier_cutoff} is the number of (MAD-normalised) standard deviations
 from the local median. Higher values are more conservative; lower
 values flag more outliers.
 \itemize{
-\item \code{outlier_cutoff = 3} — Pearson's 3 sigma edit rule (default).
-\item \code{outlier_cutoff = 2} — approximately Tukey-style 1.5×IQR rule.
-\item \code{outlier_cutoff = 0} — Tukey's median filter (every point
+\item \code{outlier_cutoff = 3} -- Pearson's 3 sigma edit rule (default).
+\item \code{outlier_cutoff = 2} -- approximately Tukey-style 1.5*IQR rule.
+\item \code{outlier_cutoff = 0} -- Tukey's median filter (every point
 replaced by local median).
 }
 }
 
-\subsection{Interpolation with \code{replace_missing()}}{
+\subsection{Interpolation with replace_missing()}{
 
 \code{method = "linear"} and \code{method = "locf"} use \code{\link[stats:approxfun]{stats::approx()}} with
 \code{rule = 2}, so leading \code{NA}s are filled by \emph{"nocb"}
@@ -221,11 +221,11 @@ replaced by local median).
 
 \code{method = "median"} calculates the local median of valid (non-\code{NA})
 values to either side of \code{NA}s, within a window defined by \code{width}
-(number of samples) or \code{span} (timespan in units of \code{t}). Sequential
+(number of samples) or \code{span} (time span in units of \code{t}). Sequential
 \code{NA}s are all replaced by the same median value.
 }
 
-\subsection{Edge behaviour for \code{method = "median"}}{
+\subsection{Edge behaviour for method = "median"}{
 
 If there are no valid values within \code{span} to one side of the \code{NA},
 the median of the other side is used (i.e. for leading and trailing
@@ -257,7 +257,7 @@ data_clean <- replace_mnirs(
     invalid_values = 0,    ## known invalid values in the data
     invalid_above = 90,    ## remove data spikes above 90
     outlier_cutoff = 3,    ## Pearson's 3 sigma edit rule
-    width = 10,            ## window for outlier detection and interpolation
+    width = 7,            ## window for outlier detection and interpolation
     method = "linear"      ## linear interpolation over NAs
 )
 

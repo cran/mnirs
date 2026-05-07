@@ -11,13 +11,13 @@
 #'   - If `NULL` (default), the `nirs_channels` metadata attribute of `data` is
 #'     used.
 #'
-#' @param time_channel A character string giving the name of the time or sample
-#'   column. Must match a column name in `data` exactly.
+#' @param time_channel A character string naming the time or sample column. 
+#'   Must match a column name in `data` exactly.
 #'   - If `NULL` (default), the `time_channel` metadata attribute of `data` is
 #'     used.
 #'
-#' @param event_channel A character string giving the name of the event/lap
-#'   column. Must match a column name in `data` exactly.
+#' @param event_channel A character string naming the event/lap column. Must 
+#'   match a column name in `data` exactly.
 #'   - If `NULL` (default), the `event_channel` metadata attribute of `data` is
 #'     used.
 #'
@@ -232,7 +232,7 @@ validate_nirs_channels <- function(
     as_list = FALSE,
     env = rlang::caller_env()
 ) {
-    ## parse NSE input
+    ## parse tidy eval input
     if (rlang::is_quosure(nirs_channels)) {
         nirs_channels <- parse_channel_name(nirs_channels, data, env)
     }
@@ -304,7 +304,7 @@ validate_time_channel <- function(
     data,
     env = rlang::caller_env()
 ) {
-    ## parse NSE input
+    ## parse tidy eval input
     if (rlang::is_quosure(time_channel)) {
         time_channel <- parse_channel_name(time_channel, data, env)
     }
@@ -352,7 +352,7 @@ validate_event_channel <- function(
     required = TRUE,
     env = rlang::caller_env()
 ) {
-    ## parse NSE input
+    ## parse tidy eval input
     if (rlang::is_quosure(event_channel)) {
         event_channel <- parse_channel_name(event_channel, data, env)
     }
@@ -365,7 +365,8 @@ validate_event_channel <- function(
     if (is.null(event_channel) && required) {
         cli_abort(c(
             "x" = "{.arg event_channel} not detected in metadata.",
-            "i" = "Check your data attributes or define {.arg event_channel} \\ explicitly."
+            "i" = "Check your data attributes or define {.arg event_channel} \\
+            explicitly."
         ))
     } else if (is.null(event_channel) && !required) {
         ## return event_channel = NULL if not required
@@ -410,6 +411,7 @@ validate_event_channel <- function(
 estimate_sample_rate <- function(x) {
     ## estimate samples per second
     sample_rate_raw <- 1 / median(diff(x), na.rm = TRUE)
+    
     if (!is.finite(sample_rate_raw) || sample_rate_raw == 0) {
         cli_abort(c(
             "x" = "Unable to estimate {.arg sample_rate}.",
@@ -418,11 +420,11 @@ estimate_sample_rate <- function(x) {
         ))
     }
 
-    mags <- 10^floor(log10(sample_rate_raw))
-    val <- sample_rate_raw / mags
-    pretty_base <- c(1, 2, 5, 10)
-    rounded <- pretty_base[which.min(abs(pretty_base - val))]
-    return(rounded * mags)
+    pretty_vals <- c(
+        0.25, 0.5, 1, 2, 3, 4, 5, 10, 15, 20, 25, 30, 50, 60, 75, 100
+    )
+    rounded <- pretty_vals[which.min(abs(pretty_vals - sample_rate_raw))]
+    return(rounded)
 }
 
 
@@ -463,14 +465,16 @@ validate_sample_rate <- function(
     ## if provided sample rate seems off and time_channel doesn't appear
     ## to be integer values, report warning
     if (
-        verbose &&
-            !isTRUE(all.equal(1, sample_rate_est, tolerance = 0.001)) &
-            !isTRUE(all.equal(sample_rate_est, sample_rate, tolerance = 0.5))
+        verbose && !isTRUE(
+            all.equal(1, sample_rate_est, tolerance = 0.001, scale = 1)
+        ) & !isTRUE(
+            all.equal(sample_rate_est, sample_rate, tolerance = 0.5, scale = 1)
+        )
     ) {
         cli_warn(c(
-            "!" = "{.arg sample_rate} = {.val {sample_rate}} appears to be \\
-            inconsistent with estimated sample_rate = \\
-            {.val {sample_rate_est}}.",
+            "!" = "`sample_rate = {.val {sample_rate}}` appears to be \\
+            inconsistent with {.arg time_channel}. Estimated \\
+            `sample_rate = {.val {sample_rate_est}}`.",
             "i" = "Check that your sample rate and {.arg time_channel} \\
             values are consistent."
         ))

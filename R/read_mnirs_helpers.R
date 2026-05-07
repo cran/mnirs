@@ -100,6 +100,12 @@ device_patterns <- list(
         nirs_channels = c("SmO2[%]"),
         pattern = c("Time[s]", "SmO2[%]"),
         fixed = TRUE
+    ),
+    PerfPro = list(
+        time_channel = c("Time"),
+        nirs_channels = NULL,
+        pattern = c("Time.*SmO2"),
+        fixed = FALSE
     )
 )
 
@@ -156,6 +162,8 @@ detect_mnirs_device <- function(data) {
 #' Detect known channels for a device
 #' @keywords internal
 detect_device_channels <- function(
+    data,
+    header_row = 1L,
     nirs_device = NULL,
     nirs_channels = NULL,
     time_channel = NULL,
@@ -182,6 +190,13 @@ detect_device_channels <- function(
 
     ## successfully detected `nirs_device` with `nirs_channels = NULL`
     ch_list <- device_patterns[[nirs_device]]
+    
+    if (nirs_device == "PerfPro") {
+        ch_list$nirs_channels <- Find(\(.x) {
+            startsWith(.x, "SmO2")
+        }, data[header_row, ])
+    }
+    
     ch_list <- list(
         ## user-specified `time_channel` takes priority here
         time_channel = time_channel %||% ch_list$time_channel,
@@ -205,7 +220,7 @@ detect_device_channels <- function(
 #' @keywords internal
 read_data_table <- function(
     data,
-    nirs_channels,
+    nirs_channels = NULL,
     header_row = 1L
 ) {
     nrows <- nrow(data)
@@ -245,9 +260,7 @@ extract_start_timestamp <- function(file_header) {
     ## search for POSIXct values, return the earliest time value
     ## vulnerable to invalid timestamps
     parsed <- which(!is.na(vapply(header_values, \(.x) {
-        localise_POSIXct(
-            .x, tryFormats = datetime_formats, optional = TRUE
-        )
+        as.POSIXct(.x, tryFormats = datetime_formats, optional = TRUE)
     }, numeric(1L))))
 
     if (length(parsed) == 0L) {
@@ -489,13 +502,6 @@ remove_empty_rows_cols <- function(data) {
 }
 
 
-#' Convert POSIXct timestamp to system local time
-#' @keywords internal
-localise_POSIXct <- function(x, ...) {
-    as.POSIXct(as.character(as.POSIXct(x, "UTC", ...)), tz = Sys.timezone())
-}
-
-
 #' Parse time_channel character or dttm to numeric
 #' @keywords internal
 parse_time_channel <- function(
@@ -507,9 +513,12 @@ parse_time_channel <- function(
 ) {
     time_vec <- data[[time_channel]]
 
-    ## fractional unix time to POSIXct
+    ## fractional unix time to POSIXct coerced to local time zone
     if (is.numeric(time_vec) && all(time_vec <= 1, na.rm = TRUE)) {
-        time_vec <- localise_POSIXct(time_vec * 86400, optional = TRUE)
+        time_vec <- as.POSIXct(
+            as.character(as.POSIXct(Sys.Date(), "UTC")),
+            tz = Sys.timezone()
+        ) + time_vec * 86400
     }
 
     ## recalculate numeric time to start from zero
@@ -519,7 +528,7 @@ parse_time_channel <- function(
 
     ## character time to POSIXct
     if (is.character(time_vec)) {
-        time_vec <- localise_POSIXct(
+        time_vec <- as.POSIXct(
             time_vec, tryFormats = datetime_formats, optional = TRUE
         )
     }
@@ -545,7 +554,7 @@ parse_time_channel <- function(
         ## if neither header start_timestamp or timestamp_vec exist
         ## then return NULL and don't append column
         if (!is.null(start_timestamp)) {
-            start_time <- localise_POSIXct(
+            start_time <- as.POSIXct(
                 start_timestamp, tryFormats = datetime_formats, optional = TRUE
             )
             data$timestamp <- start_time + time_vec

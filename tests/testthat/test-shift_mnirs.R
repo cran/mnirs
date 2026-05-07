@@ -420,7 +420,7 @@ test_that("shift_mnirs handles empty channel list", {
     expect_error(shift_mnirs(data, list(), by = 5), "`nirs_channels` not detected")
 })
 
-## shift_mnirs() NSE integration ========================================
+## shift_mnirs() tidy eval integration ========================================
 ## helper to create test data with metadata
 create_test_data <- function(
     time_max = 10,

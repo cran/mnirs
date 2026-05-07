@@ -22,11 +22,9 @@
 #' @inheritParams validate_mnirs
 #'
 #' @details
-#' ## filtering methods
-#'
-#' ### `method = "smooth_spline"`
+#' ## method = "smooth_spline"
 #' 
-#' Aliases: `c("smooth spline", "spline")`
+#' Aliases: `method = c("smooth spline", "spline")`
 #'
 #' Applies a non-parametric cubic smoothing spline from
 #' [stats::smooth.spline()]. Smoothing is defined by the parameter `spar`,
@@ -43,9 +41,9 @@
 #'       determined via penalised log likelihood.}
 #' }
 #'
-#' #### `method = "butterworth"`
+#' ## method = "butterworth"
 #' 
-#' Aliases: `c("butter")`
+#' Aliases: `method = c("butter")`
 #'
 #' Applies a centred (two-pass symmetrical) Butterworth digital filter
 #' from [signal::butter()] and [signal::filtfilt()].
@@ -97,9 +95,9 @@
 #'       See [filter_butter()].}
 #' }
 #'
-#' #### `method = "moving_average"`
+#' ## method = "moving_average"
 #' 
-#' Aliases: `c("moving average", "ma")`
+#' Aliases: `method = c("moving average", "ma")`
 #'
 #' Applies a centred (symmetrical) moving average filter in a local
 #' window, defined by either `width` as the number of samples around
@@ -145,7 +143,7 @@
 #'     replace_mnirs(
 #'         invalid_values = c(0, 100),
 #'         outlier_cutoff = 3,
-#'         width = 10,
+#'         width = 7,
 #'         verbose = FALSE
 #'     )
 #' 
@@ -526,7 +524,7 @@ filter_ma <- function(
     ## NaN to NA
     y[!is.finite(y)] <- NA_real_
     return(y)
-    }
+}
 
 
 #' @rdname filter_ma

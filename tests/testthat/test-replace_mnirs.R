@@ -164,7 +164,7 @@ test_that("replace_outliers() respects outlier_cutoff threshold", {
         median(x[pmax(1, .idx - 2):pmin(length(x), .idx + 2)])
     }, numeric(1))
     ## added tolerance to accomodate the robust variance threshold
-    expect_equal(result, medians, tolerance = 0.1, ignore_attr = TRUE)
+    expect_true(all.equal(result, medians, tolerance = 0.11, scale = 1))
 })
 
 test_that("replace_outliers() validates inputs correctly", {

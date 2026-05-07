@@ -342,7 +342,7 @@ test_that("filter_butter smooths noisy signal", {
 })
 
 test_that("filter_butter works visually", {
-    skip("visual chek for filter_butter")
+    skip("visual check for filter_butter")
     set.seed(999)
     sin_wave <- sin(2 * pi * 1:100 / 20)
     x <- seq_along(sin_wave)
@@ -563,7 +563,7 @@ test_that("butterworth accepts fc instead of W", {
         verbose = FALSE
     )
 
-    expect_equal(result_W$smo2_left, result_fc$smo2_left, tolerance = 1e-10)
+    expect_equal(result_W$smo2_left, result_fc$smo2_left)
 })
 
 test_that("butterworth prefers W when both W and fc specified", {

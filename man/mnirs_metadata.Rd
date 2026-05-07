@@ -13,5 +13,4 @@ mnirs_metadata
 \description{
 Metadata names  of class \code{"mnirs"}, retrieved with \code{attr()}
 }
-\keyword{:}
 \keyword{internal}

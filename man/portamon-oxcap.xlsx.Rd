@@ -10,10 +10,10 @@
 \item{Column 1}{Sample index (divide by sample rate for seconds).}
 \item{Column 2}{tHb: total haemoglobin concentration change
 (\eqn{\mu}M).}
-\item{Column 2}{O2Hb: oxyhaemoglobin concentration change (\eqn{\mu}M).}
 \item{Column 3}{HHb: deoxyhaemoglobin concentration change (\eqn{\mu}M).}
-\item{Column 4}{Event marker (character).}
-\item{Column 5}{Unmarked event label (character).}
+\item{Column 4}{O2Hb: oxyhaemoglobin concentration change (\eqn{\mu}M).}
+\item{Column 5}{Event marker (character).}
+\item{Column 6}{Unmarked event label (character).}
 }
 
 Channel mapping for \code{\link[=read_mnirs]{read_mnirs()}}:
@@ -25,7 +25,7 @@ Channel mapping for \code{\link[=read_mnirs]{read_mnirs()}}:
 }
 \source{
 Artinis Medical Systems. Portamon, exported via Oxysoft desktop
-software (https://www.artinis.com/)
+software (https://artinis.com/)
 }
 \description{
 Exported from Artinis Oxysoft, recorded on

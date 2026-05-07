@@ -32,8 +32,8 @@ relative scaling within, but not between groups.}
 \item{range}{A numeric vector in the form \code{c(min, max)}, indicating the
 range of output values to which data channels will be re-scaled.}
 
-\item{verbose}{Logical. Default is \code{TRUE}. Will display or silence (if
-\code{FALSE}) warnings and information messages helpful for troubleshooting. A
+\item{verbose}{Logical. Default is \code{TRUE}. Display or silence (if \code{FALSE})
+warnings and information messages helpful for troubleshooting. Ad
 global default can be set via \code{options(mnirs.verbose = FALSE)}.}
 }
 \value{

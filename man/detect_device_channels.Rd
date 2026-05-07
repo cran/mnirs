@@ -5,6 +5,8 @@
 \title{Detect known channels for a device}
 \usage{
 detect_device_channels(
+  data,
+  header_row = 1L,
   nirs_device = NULL,
   nirs_channels = NULL,
   time_channel = NULL,

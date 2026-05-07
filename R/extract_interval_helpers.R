@@ -17,9 +17,9 @@
 #' @details
 #' These helpers can be used explicitly for arguments `start`/`end`, or raw
 #' values can be passed directly:
-#'   - Numeric → [by_time()]
-#'   - Character → [by_label()],
-#'   - Explicit integer (e.g. `2L`) → [by_lap()].
+#'   - Numeric -> [by_time()]
+#'   - Character -> [by_label()],
+#'   - Explicit integer (e.g. `2L`) -> [by_lap()].
 #'   - Use [by_sample()] explicitly for sample indices.
 #'
 #' @returns An object of class `"mnirs_interval"` for use with the `start`
@@ -69,18 +69,6 @@ by_time <- function(...) {
 
 #' @rdname by_time
 #' @export
-by_sample <- function(...) {
-    by_sample <- c(...)
-    validate_numeric(by_sample, range = c(1, Inf), integer = TRUE)
-    structure(
-        list(type = "sample", by_sample = as.integer(by_sample)),
-        class = "mnirs_interval"
-    )
-}
-
-
-#' @rdname by_time
-#' @export
 by_label <- function(...) {
     by_label <- c(...)
     if (!is.character(by_label) || length(by_label) == 0L) {
@@ -105,6 +93,18 @@ by_lap <- function(...) {
 }
 
 
+#' @rdname by_time
+#' @export
+by_sample <- function(...) {
+    by_sample <- c(...)
+    validate_numeric(by_sample, range = c(1, Inf), integer = TRUE)
+    structure(
+        list(type = "sample", by_sample = as.integer(by_sample)),
+        class = "mnirs_interval"
+    )
+}
+
+
 #' coerce raw values to mnirs_interval objects
 #' @param x A raw value or mnirs_interval object.
 #' @param arg Name of the argument for error messages.
@@ -123,16 +123,16 @@ as_mnirs_interval <- function(x, arg = "start") {
     if (is.character(x)) {
         return(by_label(x))
     }
-    cli_abort(
-        "{.arg {arg}} must be {.cls numeric}, {.cls integer}, \\
+    cli_abort(c(
+        "x" = "{.arg {arg}} must be {.cls numeric}, {.cls integer}, \\
         {.cls character}, or a {.fn by_time}, {.fn by_sample}, \\
         {.fn by_label}, {.fn by_lap} specification."
-    )
+    ))
 }
 
 
 #' recycle a single-element span to c(before, after)
-#' positive → c(0, x), negative → c(x, 0)
+#' positive -> c(0, x), negative -> c(x, 0)
 #' @keywords internal
 recycle_span <- function(span) {
     if (is.numeric(span) && length(span) == 2L) {
@@ -205,18 +205,6 @@ resolve_interval <- function(
     has_end <- !is.null(end)
     interval <- start %||% end
 
-    ## single-boundary lap: resolve to full lap (first + last)
-    if (interval$type == "lap" && xor(has_start, has_end)) {
-        start_time <- find_interval_time(interval, time_vec, event_vec, "first")
-        end_time <- find_interval_time(interval, time_vec, event_vec, "last")
-        return(list(
-            start_time = start_time,
-            end_time = end_time,
-            has_start = TRUE,
-            has_end = TRUE
-        ))
-    }
-
     ## single-boundary non-lap: reference point for span
     if (xor(has_start, has_end)) {
         start_time <- find_interval_time(
@@ -243,8 +231,8 @@ resolve_interval <- function(
     if (n_start != n_end) {
         n_intervals <- min(n_start, n_end)
         cli_warn(c(
-            "!" = "{.arg start} ({col_blue(n_start)}) and \\
-            {.arg end} ({col_blue(n_end)}) have unequal lengths.",
+            "!" = "Unequal lengths for {.arg start} ({col_blue(n_start)}) \\
+            and {.arg end} ({col_blue(n_end)}).",
             "i" = "Returning {col_blue(n_intervals)} paired interval{?s}."
         ))
         start_time <- start_time[seq_len(n_intervals)]

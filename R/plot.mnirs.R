@@ -1,13 +1,15 @@
 #' Plot *{mnirs}* objects
 #'
-#' Create a simple plot for objects returned from [create_mnirs_data()].
+#' Create a base plot for data frames or lists of data frames with class
+#' *"mnirs"*.
 #'
-#' @param x Object of class *"mnirs"* returned from [create_mnirs_data()]
-#' @param points Logical. Default is `FALSE`. If `TRUE` displays 
-#'   `ggplot2::geom_points()`. Otherwise only `ggplot2::geom_lines()` 
-#'   is displayed.
+#' @param x Data frame or list of data frames of class *"mnirs"* (e.g. from
+#'   [extract_intervals()]). List input produces a faceted plot with one
+#'   panel per element.
+#' @param points Logical. Default is `FALSE`. If `TRUE` displays
+#'   `ggplot2::geom_points()`. Otherwise displays `ggplot2::geom_lines()`.
 #' @param time_labels Logical. Default is `FALSE`. If `TRUE` displays x-axis
-#'   time values formatted as *"hh:mm:ss"* using [format_hmmss()]. Otherwise, 
+#'   time values formatted as *"hh:mm:ss"* using [format_hmmss()]. Otherwise,
 #'   x-axis values are displayed as numeric.
 #' @param n.breaks A numeric value specifying the number of breaks in both
 #'   x- and y-axes. Default is `5`.
@@ -15,19 +17,36 @@
 #'   and non-finite `c(Inf, -Inf, NaN)` from display.
 #' @param ... Additional arguments.
 #'
+#' @details
+#' When `x` is a named list of *"mnirs"* data frames, elements are bound into a
+#' single data frame and displayed as faceted panels via
+#' [ggplot2::facet_wrap()].
+#'
+#' Arguments in `...` are currently passed to [ggplot2::facet_wrap()]
+#' formals, such as `nrow`, `ncol`, and `scales` for more precise control.
+#'
 #' @returns A [ggplot2][ggplot2::ggplot()] object.
 #'
 #' @examplesIf rlang::is_installed(c("ggplot2", "scales"))
 #' data <- read_mnirs(
-#'     file_path = example_mnirs("moxy_ramp"),
-#'     nirs_channels = c(smo2_left = "SmO2 Live",
-#'                       smo2_right = "SmO2 Live(2)"),
-#'     time_channel = c(time = "hh:mm:ss"),
+#'     example_mnirs("train.red"),
+#'     nirs_channels = c(smo2 = "SmO2"),
+#'     time_channel = c(time = "Timestamp (seconds passed)"),
 #'     verbose = FALSE
 #' )
-#'
-#' ## note the options to display time values as `h:mm:ss` with 8 breaks
-#' plot(data, time_labels = TRUE, n.breaks = 8)
+#' 
+#' ## plot time labels as "hh:mm:ss"
+#' plot(data, time_labels = TRUE)
+#' 
+#' data_list <- extract_intervals(
+#'     data,
+#'     start = by_time(2452, 3168),
+#'     span = c(-60, 120),
+#'     verbose = FALSE
+#' )
+#' 
+#' ## plot a list of mnirs data frames as faceted panels
+#' plot(data_list, time_labels = TRUE)
 #'
 #' @export
 plot.mnirs <- function(
@@ -38,14 +57,21 @@ plot.mnirs <- function(
     na.omit = FALSE,
     ...
 ) {
-    check_installed(c("ggplot2", "scales"), reason = "to plot mNIRS data")
+    check_installed(c("ggplot2"), reason = "to plot mNIRS data")
+
+    args <- list(...)
+
+    ## handle list of mnirs data frames
+    if (is.list(x) && !is.data.frame(x)) {
+        x <- as_plot_data(x)
+    }
 
     nirs_channels <- attr(x, "nirs_channels")
     time_channel <- attr(x, "time_channel")
 
     ## pre-compute conditionals
     x_name <- if (time_labels) {
-        paste(time_channel, "(mm:ss)")
+        paste(time_channel, "(h:mm:ss)")
     } else {
         ggplot2::waiver()
     }
@@ -94,13 +120,102 @@ plot.mnirs <- function(
         ch_aes <- ggplot2::aes(y = .data[[ch]], colour = ch)
         c(
             list(ggplot2::geom_line(ch_aes, data = ch_data)),
-            if (points) list(ggplot2::geom_point(
-                ch_aes, data = ch_data, size = 3
-            ))
+            if (points) list(
+                ggplot2::geom_point(ch_aes, data = ch_data, size = 3)
+            )
         )
     })
 
+    ## facet when plotting multiple mnirs data frames
+    if (".id" %in% names(x)) {
+        facet_args <- intersect(
+            names(args),
+            names(formals(ggplot2::facet_wrap))
+        )
+        plot <- plot + do.call(
+            ggplot2::facet_wrap,
+            c(
+                list(facets = ~.id, scales = args[["scales"]] %||% "free_x"),
+                args[setdiff(facet_args, "scales")]
+            )
+        )
+    }
+
     return(plot + layers)
+}
+
+
+#' Validate and bind a list of mnirs data frames for plotting
+#' @keywords internal
+as_plot_data <- function(x) {
+    if (length(x) == 0L) {
+        cli_abort(c(
+            "x" = "{.fn plot.mnirs} must contain at least one \\
+            {col_blue('\"mnirs\"')} data frame."
+        ))
+    }
+
+    if (any(!vapply(x, is.data.frame, logical(1)))) {
+        cli_abort(c(
+            "x" = "{.fn plot.mnirs} must contain all {col_blue('\"mnirs\"')} \\
+            data frames."
+        ))
+    }
+
+    ## validate time_channel is consistent across elements
+    time_channels <- vapply(x, \(.df) {
+        attr(.df, "time_channel") %||% NA_character_
+    }, character(1))
+    
+    if (anyNA(time_channels)) {
+        cli_abort(c(
+            "x" = "All elements of {.fn plot.mnirs} must have a \\
+            {.field time_channel} attribute."
+        ))
+    }
+    if (length(unique(time_channels)) > 1L) {
+        cli_abort(c(
+            "x" = "All elements of {.fn plot.mnirs} must share the same \\
+            {.field time_channel}.",
+            "i" = "Found: {.val {unique(time_channels)}}."
+        ))
+    }
+
+    ## auto-name unnamed list elements
+    if (is.null(names(x))) {
+        names(x) <- paste0("interval_", seq_along(x))
+    }
+
+    ## length-1 list: unwrap to single data frame
+    if (length(x) == 1L) {
+        return(x[[1L]])
+    }
+
+    ## union of nirs_channels across all elements
+    nirs_channels <- unique(unlist(
+        lapply(x, attr, "nirs_channels"),
+        use.names = FALSE
+    ))
+
+    ## pad each element with NA for any missing nirs_channels
+    x <- lapply(x, \(.df) {
+        .df[setdiff(nirs_channels, names(.df))] <- NA_real_
+        .df
+    })
+
+    ## add .id column to each element, then row-bind
+    x <- Map(\(.df, .nm) {
+        .df[[".id"]] <- .nm
+        .df
+    }, x, names(x))
+    plot_data <- do.call(rbind, unname(x))
+    plot_data[[".id"]] <- factor(
+        plot_data[[".id"]], levels = unique(plot_data[[".id"]])
+    )
+    attr(plot_data, "nirs_channels") <- nirs_channels
+    attr(plot_data, "time_channel") <- time_channels[[1L]]
+
+    return(plot_data)
 }
 
 
@@ -327,9 +442,9 @@ scale_fill_mnirs <- function(..., aesthetics = "fill") {
 }
 
 
-#' Breaks for timespan data
+#' Breaks for time span data
 #'
-#' Pretty timespan breaks for plotting in units of 5, 15, 30, 60 sec, etc.
+#' Pretty time span breaks for plotting in units of 5, 15, 30, 60 sec, etc.
 #' Modified from [scales::breaks_timespan()].
 #'
 #' @param unit The time unit used to interpret numeric data input (*defaults*
@@ -397,9 +512,9 @@ breaks_timespan <- function(
 }
 
 
-#' Format timespan data as h:mm:ss
+#' Format time span data as h:mm:ss
 #'
-#' Convert numeric timespan data to `h:mm:ss` format for pretty plotting.
+#' Convert numeric time span data to `h:mm:ss` format for pretty plotting.
 #' Inspired by [ggplot2::scale_x_time()].
 #'
 #' @param x A numeric vector.
@@ -436,8 +551,8 @@ format_hmmss <- function(x) {
     }
 
     sign <- ifelse(x < 0, "-", "")
-    hrs <- abs(x) %/% 3600
-    mins <- (abs(x) %% 3600) %/% 60
+    hrs <- as.integer(abs(x) %/% 3600)
+    mins <- as.integer((abs(x) %% 3600) %/% 60)
     secs <- abs(x) %% 60
 
     hmmss_string <- if (any(hrs > 0, na.rm = TRUE)) {

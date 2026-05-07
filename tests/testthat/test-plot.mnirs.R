@@ -10,7 +10,6 @@ test_that("theme_mnirs returns a ggplot2 theme object", {
 test_that("theme_mnirs border argument works correctly", {
     partial <- theme_mnirs(border = "partial")
     full <- theme_mnirs(border = "full")
-
     expect_s3_class(partial$panel.border, "element_blank")
     expect_s3_class(full$panel.border, "element_rect")
 })
@@ -121,7 +120,7 @@ test_that(" breaks_timespan corresponds to nice_steps for each scale level", {
     expect_true(all(steps_sec %in% nice_steps_sec))
     expect_type(breaks_sec, "double")
     expect_true(all(breaks_sec >= 0 & breaks_sec <= 150))
-    expect_equal(length(breaks_sec), 5, tolerance = 2)
+    expect_true(all.equal(length(breaks_sec), 5, tolerance = 2, scale = 1))
 
     # Test scale = 60 (5 * 60 < diff <= 5 * 3600)
     nice_steps_min <- c(1, 2, 5, 10, 15, 20, 30, 60, 120) * 60
@@ -131,7 +130,7 @@ test_that(" breaks_timespan corresponds to nice_steps for each scale level", {
     expect_true(all(steps_min %in% nice_steps_min))
     expect_type(breaks_min, "double")
     expect_true(all(breaks_min >= 0 & breaks_min <= 7200))
-    expect_equal(length(breaks_min), 5, tolerance = 2)
+    expect_true(all.equal(length(breaks_min), 5, tolerance = 2, scale = 1))
 
     # Test scale = 3600 (5 * 3600 < diff <= 5 * 86400)
     nice_steps_hr <- c(0.25, 0.5, 1, 2, 3, 4, 6, 8, 12, 24) * 3600
@@ -141,7 +140,7 @@ test_that(" breaks_timespan corresponds to nice_steps for each scale level", {
     expect_true(all(steps_hr %in% nice_steps_hr))
     expect_type(breaks_hr, "double")
     expect_true(all(breaks_hr >= 0 & breaks_hr <= 86400))
-    expect_equal(length(breaks_hr), 5, tolerance = 2)
+    expect_true(all.equal(length(breaks_hr), 5, tolerance = 2, scale = 1))
 
     # Test scale = 86400 (diff > 5 * 86400)
     nice_steps_day <- c(1, 7, 28) * 86400
@@ -151,7 +150,7 @@ test_that(" breaks_timespan corresponds to nice_steps for each scale level", {
     expect_true(all(steps_day %in% nice_steps_day))
     expect_type(breaks_day, "double")
     expect_true(all(breaks_day >= 0 & breaks_day <= 86400 * 28))
-    expect_equal(length(breaks_day), 5, tolerance = 2)
+    expect_true(all.equal(length(breaks_day), 5, tolerance = 2, scale = 1))
 })
 
 ## format_hmmss() ==================================================
@@ -185,7 +184,7 @@ test_that("format_hmmss handles NA values", {
 })
 
 
-## plot.mnirs() ===============================================
+## as_plot_data() =============================================
 # Helper to create mock mNIRS object
 mock_mnirs <- function() {
     df <- data.frame(
@@ -201,6 +200,78 @@ mock_mnirs <- function() {
     )
 }
 
+test_that("as_plot_data errors on invalid lists", {
+    ## empty list
+    expect_error(as_plot_data(list()), "at least one")
+    ## not a df
+    expect_error(as_plot_data(list(mock_mnirs(), "not_a_df")), "must contain all")
+})
+
+test_that("as_plot_data errors when element missing time_channel attribute", {
+    bad <- structure(
+        data.frame(time = 1:3, HHb = 1:3),
+        class = c("mnirs", "data.frame"),
+        nirs_channels = "HHb"
+    )
+    expect_error(as_plot_data(list(bad)), "time_channel attribute")
+})
+
+test_that("as_plot_data errors when elements have differing time_channel", {
+    a <- mock_mnirs()
+    b <- structure(
+        data.frame(t = 1:10, HHb = 1:10),
+        class = c("mnirs", "data.frame"),
+        nirs_channels = "HHb",
+        time_channel = "t"
+    )
+    expect_error(as_plot_data(list(a, b)), "same.*time_channel")
+})
+
+test_that("as_plot_data unwraps single-element list", {
+    x <- mock_mnirs()
+    result <- as_plot_data(list(x))
+    expect_identical(result, x)
+})
+
+test_that("as_plot_data row-binds named list with .id factor", {
+    a <- mock_mnirs()
+    b <- mock_mnirs()
+    result <- as_plot_data(list(pre = a, post = b))
+    expect_true(".id" %in% names(result))
+    expect_s3_class(result[[".id"]], "factor")
+    expect_equal(levels(result[[".id"]]), c("pre", "post"))
+    expect_equal(nrow(result), nrow(a) + nrow(b))
+    expect_equal(attr(result, "time_channel"), "time")
+    expect_equal(attr(result, "nirs_channels"), c("HHb", "O2Hb"))
+})
+
+test_that("as_plot_data auto-names unnamed list with sequential integers", {
+    a <- mock_mnirs()
+    b <- mock_mnirs()
+    result <- as_plot_data(list(a, b))
+    expect_equal(levels(result[[".id"]]), c("interval_1", "interval_2"))
+})
+
+test_that("as_plot_data unions nirs_channels across elements", {
+    a <- structure(
+        data.frame(time = 1:3, HHb = 1:3),
+        class = c("mnirs", "data.frame"),
+        nirs_channels = "HHb",
+        time_channel = "time"
+    )
+    b <- structure(
+        data.frame(time = 1:3, O2Hb = 4:6),
+        class = c("mnirs", "data.frame"),
+        nirs_channels = "O2Hb",
+        time_channel = "time"
+    )
+    result <- as_plot_data(x = list(a, b))
+
+    # plot(result)
+    expect_equal(attr(result, "nirs_channels"), c("HHb", "O2Hb"))
+})
+
+## plot.mnirs() ===============================================
 test_that("na.omit removes rows with any NA in nirs_channels", {
     x <- mock_mnirs()
 
@@ -224,7 +295,7 @@ test_that("time_labels controls x-axis name and formatting", {
 
     # With time_labels = TRUE
     p2 <- plot(x, time_labels = TRUE)
-    expect_equal(p2$labels$x, "time (mm:ss)")
+    expect_equal(p2$labels$x, "time (h:mm:ss)")
     expect_false(ggplot2::is_waiver(p2$scales$get_scales("x")$labels))
 })
 
@@ -301,6 +372,63 @@ test_that("plot.mnirs uses waiver() for breaks when scales is unavailable", {
             expect_true(ggplot2::is_waiver(y_scale$breaks))
         }
     )
+})
+
+test_that("plot.mnirs works on lists", {
+    df_list <- read_mnirs(
+        file_path = example_mnirs("train.red"),
+        nirs_channels = c(
+            smo2_left = "SmO2",
+            smo2_right = "SmO2 unfiltered"
+        ),
+        time_channel = c(time = "Timestamp (seconds passed)"),
+        event_channel = c(lap = "Lap/Event"),
+        verbose = FALSE
+    ) |>
+        resample_mnirs(method = "linear", verbose = FALSE) |>
+        extract_intervals(
+            start = by_lap(3, 5),
+            span = c(-30, 120),
+            zero_time = TRUE,
+            verbose = FALSE
+        )
+
+    expect_type(df_list, "list")
+    expect_s3_class(df_list, "mnirs")
+    expect_length(df_list, 2)
+
+    ## visual check
+    p <- plot(df_list)
+    expect_s3_class(p, "ggplot")
+
+    ## facet wrap present for multi-element list
+    facet_layers <- Filter(\(l) inherits(l, "FacetWrap"), list(p$facet))
+    expect_length(facet_layers, 1)
+
+    ## renders without error
+    expect_no_error(ggplot2::ggplot_build(p))
+})
+
+test_that("plot.mnirs() returns ggplot2 warnings for missing values", {
+    a <- structure(
+        data.frame(time = 1:3, HHb = 1:3),
+        class = c("mnirs", "data.frame"),
+        nirs_channels = "HHb",
+        time_channel = "time"
+    )
+    b <- structure(
+        data.frame(time = 1:3, O2Hb = 4:6),
+        class = c("mnirs", "data.frame"),
+        nirs_channels = "O2Hb",
+        time_channel = "time"
+    )
+    result <- as_plot_data(x = list(a, b))
+
+    w <- tryCatch(
+        print(plot(result)),
+        warning = \(w) conditionMessage(w)
+    )
+    expect_match(w, "Removed.*containing missing")
 })
 
 test_that("plot.mnirs moxy.perfpro works", {
