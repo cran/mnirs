@@ -1,3 +1,10 @@
+# mnirs 0.6.4
+
+## Bug fix
+
+* Fix a memory allocation bug with `resample_mnirs`. Downsampling 100k rows now allocates ~11MB rather than ~4.5 GB.
+
+
 # mnirs 0.6.3
 
 ## Plotting improvements

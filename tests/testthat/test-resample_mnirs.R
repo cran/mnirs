@@ -4,13 +4,18 @@ test_that("resample_mnirs upsamples correctly", {
         value = c(10, 20, 30)
     )
 
-    result <- resample_mnirs(data, "time", 1, 4, verbose = FALSE)
+    result <- resample_mnirs(
+        data,
+        time_channel = "time",
+        sample_rate = 1,
+        resample_rate = 4,
+        method = "linear",
+        verbose = FALSE
+    )
 
     expect_equal(nrow(result), 9) # 0 to 2 at 0.25 intervals
     expect_equal(result$time, seq(0, 2, by = 0.25))
-    expect_equal(result$value[1], 10)
-    expect_equal(result$value[5], 20)
-    expect_equal(result$value[9], 30)
+    expect_equal(result$value, seq(10, 30, 2.5))
 
     result <- resample_mnirs(
         data,
@@ -34,13 +39,18 @@ test_that("resample_mnirs downsamples correctly", {
         value = seq(10, 30, length.out = 21)
     )
 
-    result <- resample_mnirs(data, "time", 10, 1, verbose = FALSE)
+    result <- resample_mnirs(
+        data,
+        time_channel = "time",
+        sample_rate = 10,
+        resample_rate = 1,
+        method = "linear",
+        verbose = FALSE
+    )
 
     expect_equal(nrow(result), 3) # 0, 1, 2
     expect_equal(result$time, c(0, 1, 2))
-    expect_equal(result$value[1], 10)
-    expect_equal(result$value[2], 20)
-    expect_equal(result$value[3], 30)
+    expect_equal(result$value, seq(10, by = 10, len = 3))
 
     result <- resample_mnirs(
         data,
@@ -230,10 +240,23 @@ test_that("non-numeric columns: down-sampling all NA in interval", {
         verbose = FALSE
     )
 
-    expect_equal(
-        result$category,
-        c("A", NA, "C", NA, "E")
+    expect_equal(result$category, c("A", NA, "C", NA, "E"))
+
+    data <- tibble(
+        time = seq(0.45, 4.95, 0.5),
+        event = NA
     )
+
+    result <- resample_mnirs(
+        data,
+        time_channel = "time",
+        sample_rate = 2,
+        resample_rate = 1,
+        method = "linear",
+        verbose = FALSE
+    )
+
+    expect_equal(nrow(result), 6L)
 })
 
 test_that("non-numeric columns: method = 'NA' tolerance matching", {

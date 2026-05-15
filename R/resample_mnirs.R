@@ -54,7 +54,7 @@
 #' - For `method = "none"`, existing rows are matched to the nearest original
 #'   values of `time_channel` without interpolation or filling, meaning newly
 #'   created samples and any `NA`s in the original data are returned as `NA`.
-#' - When down-sampling, numeric columns use time-weighted averaging. 
+#' - When down-sampling, numeric columns use time-weighted averaging.
 #'   Non-numeric columns use the first valid value in each output bin.
 #'
 #' @returns A [tibble][tibble::tibble-package] of class `"mnirs"`. Metadata are
@@ -76,7 +76,7 @@
 #'     data,               ## blank channels will be retrieved from metadata
 #'     resample_rate = 2,  ## blank by default will resample to `sample_rate`
 #'     method = "linear",  ## linear interpolation across resampled indices
-#'     verbose = TRUE      
+#'     verbose = TRUE
 #' )
 #'
 #' ## note the altered `time` values resolving the above warning
@@ -112,75 +112,97 @@ resample_mnirs <- function(
 
     ## calculate resampling parameters  ===================================
     resample_time <- 1 / resample_rate
-    colnames <- names(data)
-    time_vec <- data[[time_channel]]
-    time_range <- range(time_vec, na.rm = TRUE) * resample_rate
-    time_range <- c(floor(time_range[1L]), round(time_range[2L])) / 
-        resample_rate
-    resampled_times <- seq(time_range[1L], time_range[2L], by = resample_time)
-    result <- setNames(data.frame(resampled_times), time_channel)
+    cols <- names(data)
+    t_vec <- data[[time_channel]]
+    n_vec <- length(t_vec)
+    t_range <- range(t_vec, na.rm = TRUE) * resample_rate
+    t_range <- c(floor(t_range[1L]), round(t_range[2L])) / resample_rate
+    t_out <- seq(t_range[1L], t_range[2L], by = resample_time)
+    n_out <- length(t_out)
+
+    ## un-tibble cheap list view of data
+    data_list <- unclass(data)
 
     ## identify numeric cols; integers and `time_channel` excluded
-    numeric_cols <- vapply(data, \(.x) {
+    numeric_cols <- vapply(data_list, \(.x) {
         is.numeric(.x) && !is.integer(.x)
     }, logical(1))
     numeric_cols[time_channel] <- FALSE
-    non_numeric_cols <- colnames[!numeric_cols & colnames != time_channel]
+    numeric_names <- cols[numeric_cols]
+    non_numeric_names <- cols[!numeric_cols & cols != time_channel]
+
+    ## preallocate output column list in input order
+    out <- vector("list", length(cols))
+    names(out) <- cols
+    out[[time_channel]] <- t_out
 
     ## nearest-match index for "none" method =============================
     if (method == "none") {
-        idx <- max.col(
-            -abs(outer(resampled_times, time_vec, `-`)),
-            ties.method = "first"
-        )
-        tol <- resample_time * 0.5
-        match_ok <- abs(resampled_times - time_vec[idx]) < tol
+        ## bracket each resampled time within sorted t_vec, then pick
+        ## the closer of the left/right neighbours. `left.open = TRUE`
+        ## ensures that on duplicate t_vec values the *first* duplicate
+        ## wins (matches the previous "first match" tie-breaking).
+        left <- findInterval(t_out, t_vec, all.inside = TRUE, left.open = TRUE)
+        right <- pmin(left + 1L, n_vec)
+        ## branchless nearest-pick; left wins on tie
+        idx <- left
+        pick_right <- t_out - t_vec[left] > t_vec[right] - t_out
+        idx[pick_right] <- right[pick_right]
+        ## tol = half resample_time
+        match_ok <- abs(t_out - t_vec[idx]) < resample_time * 0.5
         idx[!match_ok] <- NA
     }
 
     ## interpolate numeric columns (locf/linear only) ==================
-    if (method != "none" && any(numeric_cols)) {
-        result[colnames[numeric_cols]] <- lapply(
-            data[numeric_cols], \(.x) {
-                replace_missing(
-                    .x, time_vec, method = method, xout = resampled_times
-                )
-            }
-        )
+    if (method != "none" && length(numeric_names) > 0) {
+        approx_method <- if (method == "locf") "constant" else method
+        out[numeric_names] <- lapply(data_list[numeric_names], \(.x) {
+            stats::approx(
+                x = t_vec,
+                y = .x,
+                xout = t_out,
+                method = approx_method,
+                rule = 2,
+                f = 0,
+                ties = list("ordered", mean)
+            )$y
+        })
     }
 
     ## index-based fill for non-numeric columns ===========================
-    idx_cols <- if (method == "none") {
-        colnames[colnames != time_channel]
+    idx_names <- if (method == "none") {
+        cols[cols != time_channel]
     } else {
-        non_numeric_cols
+        non_numeric_names
     }
 
-    if (length(idx_cols) > 0) {
+    if (length(idx_names) > 0) {
         if (method == "none") {
             ## tolerance-matched index computed above
-            result[idx_cols] <- lapply(data[idx_cols], \(.x) .x[idx])
-        } else if (length(resampled_times) < length(time_vec)) {
-            ## down-sample: first non-NA per bin
-            idx <- findInterval(
-                time_vec, resampled_times, rightmost.closed = FALSE
-            )
-            idx[idx == 0] <- 1
-            result[idx_cols] <- lapply(data[idx_cols], \(.x) {
-                unname(unsplit(
-                    lapply(split(.x, idx), \(.v) .v[!is.na(.v)][1L]),
-                    unique(idx)
-                ))
+            out[idx_names] <- lapply(data_list[idx_names], \(.x) .x[idx])
+        } else if (n_out < n_vec) {
+            ## down-sample: assign each original sample to its output bin,
+            ## take first non-NA value falling in each bin (or NA if all NA)
+            bin <- pmin(pmax(findInterval(t_vec, t_out), 1L), n_out)
+            out[idx_names] <- lapply(data_list[idx_names], \(.x) {
+                ok <- which(!is.na(.x))
+                .x[ok[match(seq_len(n_out), bin[ok])]]
             })
         } else {
-            ## up-sample / regularise: forward fill
-            idx <- findInterval(
-                resampled_times, time_vec, rightmost.closed = FALSE
-            )
-            idx[idx == 0] <- 1
-            result[idx_cols] <- lapply(data[idx_cols], \(.x) .x[idx])
+            ## up-sample / regularise: assign each output sample to
+            ## most recent original sample at or before current
+            idx <- findInterval(t_out, t_vec, rightmost.closed = FALSE)
+            idx[idx == 0L] <- 1L
+            out[idx_names] <- lapply(data_list[idx_names], \(.x) .x[idx])
         }
     }
+
+    ## assemble data.frame from completed column list
+    result <- structure(
+        out,
+        class = "data.frame",
+        row.names = .set_row_names(n_out)
+    )
 
     ## Metadata =================================
     metadata$time_channel <- time_channel
@@ -190,7 +212,5 @@ resample_mnirs <- function(
         cli_inform(c("i" = "Output is resampled at {.val {resample_rate}} Hz."))
     }
 
-    ## column order same as input
-    result <- result[colnames]
     return(create_mnirs_data(result, metadata))
 }

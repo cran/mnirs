@@ -114,7 +114,7 @@ data_resampled <- resample_mnirs(
     data,               ## blank channels will be retrieved from metadata
     resample_rate = 2,  ## blank by default will resample to `sample_rate`
     method = "linear",  ## linear interpolation across resampled indices
-    verbose = TRUE      
+    verbose = TRUE
 )
 
 ## note the altered `time` values resolving the above warning
