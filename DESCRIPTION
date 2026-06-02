@@ -1,6 +1,6 @@
 Package: mnirs
 Title: Muscle Near-Infrared Spectroscopy Processing and Analysis
-Version: 0.6.4
+Version: 0.6.5
 Authors@R: 
     person("Jem", "Arnold", , "jem.arnold@gmail.com", role = c("aut", "cre", "cph"),
            comment = c(ORCID = "0000-0003-3908-9447"))
@@ -25,11 +25,11 @@ VignetteBuilder: quarto
 Config/Needs/website: quarto, tidyverse
 Config/testthat/edition: 3
 Encoding: UTF-8
-RoxygenNote: 7.3.3
+Config/roxygen2/version: 8.0.0
 NeedsCompilation: no
-Packaged: 2026-05-15 01:46:49 UTC; Jem
+Packaged: 2026-06-02 02:50:43 UTC; Jem
 Author: Jem Arnold [aut, cre, cph] (ORCID:
     <https://orcid.org/0000-0003-3908-9447>)
 Maintainer: Jem Arnold <jem.arnold@gmail.com>
 Repository: CRAN
-Date/Publication: 2026-05-15 02:30:02 UTC
+Date/Publication: 2026-06-02 03:10:02 UTC

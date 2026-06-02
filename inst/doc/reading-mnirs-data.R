@@ -48,7 +48,6 @@ plot(
     data_raw,
     points = FALSE,
     time_labels = TRUE,
-    n.breaks = 5,
     na.omit = FALSE
 )
 

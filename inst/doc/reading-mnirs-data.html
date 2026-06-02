@@ -392,8 +392,6 @@ Blank/empty columns will be omitted. Duplicate column names will be repaired by 
 <p><code>FALSE</code> by default; a quick way to plot individual points for more precise sample visualisation.</p></li>
 <li><p><code>time_labels</code></p>
 <p><code>FALSE</code> by default; time values on the x-axis will be plotted as numeric by default. <code>time_labels = TRUE</code> will instead plot time values as <code>h:mm:ss</code> format.</p></li>
-<li><p><code>n.breaks</code></p>
-<p>Defines the number of breaks plotted on the x-axis, passed to the <em><code>ggplot2</code></em> settings.</p></li>
 <li><p><code>na.omit</code></p>
 <p><code>FALSE</code> by default; missing data (<code>NA</code>s) will be plotted as gaps in the time-series data. If <code>na.omit = TRUE</code>, <code>NA</code>s will be omitted from the plotted data, effectively plotting across these gaps, making them less visible, but making the general data trend easier to see if there are lots of missing values.</p></li>
 </ul>
@@ -403,9 +401,8 @@ Blank/empty columns will be omitted. Duplicate column names will be repaired by 
 <span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>    data_raw,</span>
 <span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a>    <span class="at">points =</span> <span class="cn">FALSE</span>,</span>
 <span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a>    <span class="at">time_labels =</span> <span class="cn">TRUE</span>,</span>
-<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a>    <span class="at">n.breaks =</span> <span class="dv">5</span>,</span>
-<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a>    <span class="at">na.omit =</span> <span class="cn">FALSE</span></span>
-<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a>    <span class="at">na.omit =</span> <span class="cn">FALSE</span></span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div>
 <div class="cell-output-display">
 <div class="quarto-figure quarto-figure-centre">
 <figure>
