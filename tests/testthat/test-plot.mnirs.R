@@ -208,12 +208,14 @@ test_that("format_hmmss handles fractional seconds", {
 
 ## as_plot_data() =============================================
 # Helper to create mock mNIRS object
-mock_mnirs <- function() {
-    df <- data.frame(
-        time = 1:10,
-        HHb = c(1:6, NA, NA, 9:10),
-        O2Hb = c(rep(2, 3), NA, NA, rep(2, 5))
+mock_mnirs <- function(time = 1:10) {
+    df <- tibble(
+        time = time,
+        HHb = seq_along(time),
+        O2Hb = rep(2, length(time))
     )
+    df$HHb[7:8] <- NA
+    df$O2Hb[4:5] <- NA
     structure(
         df,
         class = c("mnirs", "data.frame"),
@@ -226,7 +228,10 @@ test_that("as_plot_data errors on invalid lists", {
     ## empty list
     expect_error(as_plot_data(list()), "at least one")
     ## not a df
-    expect_error(as_plot_data(list(mock_mnirs(), "not_a_df")), "must contain all")
+    expect_error(
+        as_plot_data(list(mock_mnirs(), "not_a_df")),
+        "must contain all"
+    )
 })
 
 test_that("as_plot_data errors when element missing time_channel attribute", {
@@ -317,121 +322,14 @@ test_that("time_labels controls x-axis name and formatting", {
 
     # With time_labels = TRUE
     p2 <- plot(x, time_labels = TRUE)
+    expect_equal(p2$labels$x, "time (mm:ss)")
+    expect_false(ggplot2::is_waiver(p2$scales$get_scales("x")$labels))
+
+    # With time_labels = TRUE & time >= 3600 (1 hr)
+    x <- mock_mnirs(time = 1:3600)
+    p2 <- plot(x, time_labels = TRUE)
     expect_equal(p2$labels$x, "time (h:mm:ss)")
     expect_false(ggplot2::is_waiver(p2$scales$get_scales("x")$labels))
-})
-
-test_that("plot.mnirs groups and facets", {
-    x <- mock_mnirs()
-
-    # Add a grouping column that we want to facet by
-    x$group <- rep(c("A", "B"), each = 5)
-
-    # Create plot
-    p <- plot(x)
-
-    # Check that the group column exists in plot data
-    expect_true("group" %in% names(p$data))
-
-    # Check that group values are correctly repeated
-    expect_equal(p$data$group, x$group)
-
-    # Verify faceting works without error
-    expect_no_error(p + ggplot2::facet_wrap(~group))
-})
-
-test_that("plot.mnirs works with extract_intervals and faceting", {
-    x <- mock_mnirs()
-
-    # Simulate extract_intervals output with interval column
-    x$interval <- factor(rep(1:2, each = 5))
-
-    p <- plot(x)
-
-    # Verify interval column preserved as factor
-    expect_true("interval" %in% names(p$data))
-    expect_s3_class(p$data$interval, "factor")
-
-    # Test faceting works
-    p_facet <- p + ggplot2::facet_wrap(~interval)
-    expect_s3_class(p_facet, "ggplot")
-
-    # Build plot to ensure no errors during rendering
-    expect_no_error(ggplot2::ggplot_build(p_facet))
-})
-
-test_that("plot.mnirs uses waiver() for breaks when scales is unavailable", {
-    x <- mock_mnirs()
-
-    with_mocked_bindings(
-        is_installed = function(pkg, ...) FALSE,
-        .package = "rlang",
-        {
-            p <- plot(x, time_labels = FALSE)
-            x_scale <- p$scales$get_scales("x")
-            y_scale <- p$scales$get_scales("y")
-            ## both break functions fall back to waiver()
-            expect_true(ggplot2::is_waiver(x_scale$breaks))
-            expect_true(ggplot2::is_waiver(y_scale$breaks))
-        }
-    )
-})
-
-test_that("plot.mnirs works on lists", {
-    df_list <- read_mnirs(
-        file_path = example_mnirs("train.red"),
-        nirs_channels = c(
-            smo2_left = "SmO2",
-            smo2_right = "SmO2 unfiltered"
-        ),
-        time_channel = c(time = "Timestamp (seconds passed)"),
-        event_channel = c(lap = "Lap/Event"),
-        verbose = FALSE
-    ) |>
-        resample_mnirs(method = "linear", verbose = FALSE) |>
-        extract_intervals(
-            start = by_lap(3, 5),
-            span = c(-30, 120),
-            zero_time = TRUE,
-            verbose = FALSE
-        )
-
-    expect_type(df_list, "list")
-    expect_s3_class(df_list, "mnirs")
-    expect_length(df_list, 2)
-
-    ## visual check
-    p <- plot(df_list)
-    expect_s3_class(p, "ggplot")
-
-    ## facet wrap present for multi-element list
-    facet_layers <- Filter(\(l) inherits(l, "FacetWrap"), list(p$facet))
-    expect_length(facet_layers, 1)
-
-    ## renders without error
-    expect_no_error(ggplot2::ggplot_build(p))
-})
-
-test_that("plot.mnirs() returns ggplot2 warnings for missing values", {
-    a <- structure(
-        data.frame(time = 1:3, HHb = 1:3),
-        class = c("mnirs", "data.frame"),
-        nirs_channels = "HHb",
-        time_channel = "time"
-    )
-    b <- structure(
-        data.frame(time = 1:3, O2Hb = 4:6),
-        class = c("mnirs", "data.frame"),
-        nirs_channels = "O2Hb",
-        time_channel = "time"
-    )
-    result <- as_plot_data(x = list(a, b))
-
-    w <- tryCatch(
-        print(plot(result)),
-        warning = \(w) conditionMessage(w)
-    )
-    expect_match(w, "Removed.*containing missing")
 })
 
 test_that("n.breaks overrides y-axis break count", {
@@ -512,6 +410,22 @@ test_that("plot.mnirs works with extract_intervals and faceting", {
 
     # Build plot to ensure no errors during rendering
     expect_no_error(ggplot2::ggplot_build(p_facet))
+})
+
+test_that("plot.mnirs converts character interval to appearance-order factor", {
+    x <- mock_mnirs()
+
+    ## appearance order differs from alphabetical (interval_10 < interval_2)
+    x$interval <- rep(c("interval_2", "interval_10"), each = 5)
+
+    p <- plot(x)
+    expect_s3_class(p$data$interval, "factor")
+    expect_equal(levels(p$data$interval), c("interval_2", "interval_10"))
+
+    ## existing factor levels pass through unchanged
+    x$interval <- factor(x$interval, levels = c("interval_10", "interval_2"))
+    p2 <- plot(x)
+    expect_equal(levels(p2$data$interval), c("interval_10", "interval_2"))
 })
 
 test_that("plot.mnirs uses waiver() for breaks when scales is unavailable", {
