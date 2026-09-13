@@ -26,7 +26,7 @@
 #'   - `nirs_channels = c("SmO2 Live", "SmO2 Live(2)")`
 #'   - `time_channel = c("hh:mm:ss")`
 #'   - `event_channel = c("Lap")`
-#'   - `interval_times = list(start = c(204, 878))` (start and end of exercise)
+#'   - `interval_times = list(start = c(204, 868))` (start and end of exercise)
 #'
 #' @source Moxy Monitor (Fortiori Design LLC), exported via PerfPro Studio
 #'   desktop software (https://perfprostudio.com/).
@@ -63,7 +63,9 @@ NULL
 #'   Channel mapping for [read_mnirs()]:
 #'   - `nirs_channels = c("SmO2 Live", "SmO2 Averaged", "THb")`
 #'   - `time_channel = c("hh:mm:ss")`
-#'   - `interval_times = list(start = c(124, 486, 848, 1210), end = c(364, 726, 1088, 1450))`
+#'   - `interval_times = list(
+#'         start = c(124, 486, 848, 1210),
+#'         end = c(364, 726, 1088, 1450))`
 #'
 #' @source Moxy Monitor (Fortiori Design LLC), exported via Moxy Portal App.
 #'   (https://www.moxymonitor.com/)
@@ -106,11 +108,19 @@ NULL
 #'   }
 #'
 #'   Channel mapping for [read_mnirs()]:
-#'   - `nirs_channels = c("SmO2", "SmO2 unfiltered", "O2HB unfiltered", "HHb unfiltered")`
+#'   - `nirs_channels = c(
+#'         "SmO2", "SmO2 unfiltered", "O2HB unfiltered", "HHb unfiltered"
+#'     )`
 #'   - `time_channel = c("Timestamp (seconds passed)")`
 #'   - `event_channel = c("Lap/Event")`
-#'   - `interval_times = list(start = c(2150.09, 2872.28), end = c(2452.26, 3167.98))`
-#'   - `interval_times = list(start = c(65.94, 788.13), end = c(368.11, 1083.83))` from zero_time
+#'   - `interval_times = list(
+#'         start = c(2150.09, 2872.28),
+#'         end = c(2452.26, 3167.98)
+#'     )`
+#'   - `interval_times = list(        ## from zero_time
+#'         start = c(65.94, 788.13),
+#'         end = c(368.11, 1083.83)
+#'     )`
 #'
 #' @source Train.Red (Train.Red B.V.), exported via Train.Red app
 #'   (https://train.red/)
@@ -143,11 +153,15 @@ NULL
 #'     \item{Column 5}{Unmarked event label (character).}
 #'   }
 #'
-#'   Channel mapping for [read_mnirs()]:
+#'   Channels are detected automatically from the file legend, or can be
+#'   specified explicitly for [read_mnirs()]:
 #'   - `nirs_channels = c(O2Hb = 2, HHb = 3)`
 #'   - `time_channel = c(sample = 1)`
-#'   - `event_channel = c(event = 4, label = "col_5")`
-#'   - `interval_times = list(start = c(158, 999, 1750) end = c(493, 1333, 1961))` two intervals and post-exercise occlusion
+#'   - `event_channel = c(event = 4)`
+#'   - `interval_times = list(        ## two intervals, post-exercise occlusion
+#'         start = c(158, 999, 1750),
+#'         end = c(493, 1333, 1961)
+#'     )`
 #'
 #' @source Artinis Medical Systems. Oxymon MKIII, exported via Oxysoft desktop
 #'   software (https://artinis.com/)
@@ -160,7 +174,7 @@ NULL
 NULL
 
 
-#' @name portamon-oxcap.xlsx
+#' @name portamon_oxcap.xlsx
 #'
 #' @title 10 Hz Artinis Oxysoft export recorded with Portamon
 #'
@@ -182,10 +196,12 @@ NULL
 #'     \item{Column 6}{Unmarked event label (character).}
 #'   }
 #'
-#'   Channel mapping for [read_mnirs()]:
+#'   Channels are detected automatically from the file legend (the unmarked
+#'   label column is named `"labels"`), or can be specified explicitly for
+#'   [read_mnirs()]:
 #'   - `nirs_channels = c(THb = 2, HHb = 3, O2Hb = 4)`
 #'   - `time_channel = c(sample = 1)`
-#'   - `event_channel = c(event = 5, label = "col_6")`
+#'   - `event_channel = c(event = 5, label = "labels")`
 #'
 #' @source Artinis Medical Systems. Portamon, exported via Oxysoft desktop
 #'   software (https://artinis.com/)
@@ -194,5 +210,53 @@ NULL
 #'
 #' @examples
 #' example_mnirs("portamon")
+#'
+NULL
+
+
+#' @name pionirs_occlusion.ftn
+#'
+#' @title 1 Hz PIONIRS NIRSBOX export
+#'
+#' @description Exported from PIONIRS software at 1 Hz, one channel.
+#'   Containing baseline, arterial occlusion, and recovery phases marked
+#'   by event tags, from the thenar eminence (CH1).
+#'
+#' @docType data
+#'
+#' @format tab-separated .ftn file with 15 columns and 700 rows:
+#'   \describe{
+#'     \item{Iteration}{Sample index.}
+#'     \item{Time}{Elapsed time (seconds).}
+#'     \item{uA_L1, uA_L2}{Absorption coefficient at wavelengths 1 (685 nm)
+#'       and 2 (830 nm; cm^-1).}
+#'     \item{uS_L1, uS_L2}{Reduced scattering coefficient at wavelengths 1
+#'       and 2 (cm^-1).}
+#'     \item{DPF_L1, DPF_L2}{Differential pathlength factor at wavelengths 1
+#'       and 2 (\eqn{\mu}M).}
+#'     \item{O2Hb}{Oxyhaemoglobin concentration (\eqn{\mu}M).}
+#'     \item{HHb}{Deoxyhaemoglobin concentration (\eqn{\mu}M).}
+#'     \item{THb}{Total haemoglobin concentration (\eqn{\mu}M).}
+#'     \item{StO2}{Tissue oxygen saturation (%).}
+#'     \item{DQI}{Data quality index (0-1).}
+#'     \item{Tag}{Event marker (integer). `0` - no tag; `1` - manual tag;
+#'       `2` - automatic tag from external trigger; `3` - automatic protocol-
+#'       specific tag from the measurement software}
+#'     \item{TagLabel}{Event label text.}
+#'   }
+#'
+#'   Channels are detected automatically, or can be specified explicitly for
+#'   [read_mnirs()]:
+#'   - `nirs_channels = c("StO2", "O2Hb", "HHb", "THb")`
+#'   - `time_channel = c("Time")`
+#'   - `event_channel = c("TagLabel")`
+#'   - `interval_times = list(start = 91, end = 391)`
+#'
+#' @source PIONIRS S.r.l. (https://www.pionirs.com/)
+#'
+#' @seealso [read_mnirs()], [example_mnirs()]
+#'
+#' @examples
+#' example_mnirs("pionirs")
 #'
 NULL

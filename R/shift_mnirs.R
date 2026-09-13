@@ -57,12 +57,16 @@
 #'   `data` of class *"mnirs"* which has been processed with `{mnirs}`,
 #'   if not defined explicitly.
 #'
+#' When `position` is *"min"* or *"max"*, only full windows of `width` or
+#'   `span` are considered, to avoid bias from noise at edge conditions with
+#'   partial samples.
+#'
 #' @section Per-channel arguments:
 #'
 #' Arguments apply globally to all `nirs_channels` by default. Relevant
 #' arguments can instead be supplied uniquely per-channel as a named `list()`,
 #' with names matching either `nirs_channels` or list names in
-#' `group_channels`, e.g.:
+#' `group_channels`, e.g.
 #'
 #' ```r
 #' shift_mnirs(
@@ -131,7 +135,7 @@ shift_mnirs <- function(
     position = c("min", "max", "first"),
     verbose = TRUE
 ) {
-    ## list or grouped input → normalise to named list, recurse per interval
+    ## list or grouped input -> normalise to named list, recurse per interval
     if (inherits(data, "grouped_df") || !is.data.frame(data)) {
         return(map_mnirs_intervals(data, match.call(), parent.frame()))
     }
@@ -224,17 +228,27 @@ shift_mnirs <- function(
                 na.rm = TRUE
             )
         } else {
-            ## find local windows within width/span centred around idx
-            window_idx <- compute_local_windows(
-                t = t_vec, width = .a$width, span = .a$span, env = env
+            ## local means exclude partial windows, so tapered windows at the
+            ## edges cannot bias the min/max reference toward noise
+            bounds <- compute_window_bounds(
+                t_vec, width = .a$width, span = .a$span, env = env
             )
-            shift_fun <- match.fun(.a$position)
-            ## compute min or max along local means per channel
+            which_fun <- match.fun(paste0("which.", .a$position))
             shift_values <- vapply(data[.cols], \(.x) {
-                shift_fun(
-                    compute_local_fun(.x, window_idx, mean, na.rm = TRUE),
-                    na.rm = TRUE
+                smoothed <- filter_ma(
+                    .x,
+                    t = t_vec,
+                    width = .a$width,
+                    span = .a$span,
+                    na.rm = TRUE,
+                    verbose = FALSE,
+                    env = env
                 )
+                ## locate extreme window via fast rolling means, then
+                ## recompute reference exactly to avoid floating-point drift
+                ## from cumsum differencing
+                .i <- which_fun(smoothed)
+                mean(.x[bounds$start[.i]:bounds$end[.i]], na.rm = TRUE)
             }, numeric(1))
         }
 

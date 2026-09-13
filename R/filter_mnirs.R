@@ -170,7 +170,7 @@
 #'
 #' \donttest{
 #'     if (requireNamespace("ggplot2", quietly = TRUE)) {
-#'         ## plot filtered data and add the raw data back to the plot to compare
+#'         ## plot filtered data on top of raw to compare
 #'         plot(data_filtered, time_labels = TRUE) +
 #'             ggplot2::geom_line(
 #'                 data = data,
@@ -200,7 +200,7 @@ filter_mnirs <- function(
     span = NULL,
     partial = FALSE
 ) {
-    ## list or grouped input → normalise to named list, recurse per interval
+    ## list or grouped input -> normalise to named list, recurse per interval
     if (inherits(data, "grouped_df") || !is.data.frame(data)) {
         return(map_mnirs_intervals(data, match.call(), parent.frame()))
     }
@@ -500,43 +500,20 @@ filter_moving_average <- function(
     }
 
     ## processing ==============================================
-    window_idx <- compute_local_windows(
-        t,
-        width = width,
-        span = span,
-        env = env
-    )
+    bounds <- compute_window_bounds(t, width = width, span = span, env = env)
+    ## partial windows are permitted down to a single valid sample
+    min_obs <- if (partial) 1L else window_min_obs(width, span, t, 1L, env)
 
-    if (!partial) {
-        ## min_obs default to estimated width when span is specified
-        ## less strict span_width - 2 to allow start & end buffer
-        ## with irregular t values
-        min_obs <- max(
-            width %||% (floor(span * estimate_sample_rate(t, env)) - 2L),
-            1L
-        )
-
-        ## error if fewer valid samples than min_obs
-        if (sum(is.finite(x)) < min_obs) {
-            cli_abort(c(
-                "x" = "Insufficient valid samples detected.",
-                "i" = "{.arg width} or {.arg span} must be smaller than \\
-                the range of {.arg x} when {.arg partial} = {.val {FALSE}}."
-            ), call = env)
-        }
-
-        which_partial <- lengths(window_idx) < min_obs
+    ## error if fewer valid samples than min_obs
+    if (!partial && sum(is.finite(x)) < min_obs) {
+        cli_abort(c(
+            "x" = "Insufficient valid samples detected.",
+            "i" = "{.arg width} or {.arg span} must be smaller than \\
+            the range of {.arg x}."
+        ), call = env)
     }
 
-    y <- vapply(window_idx, \(.idx) mean(x[.idx], na.rm = na.rm), numeric(1))
-
-    if (!partial) {
-        ## exclude incomplete windows (at edges)
-        y[which_partial] <- NA_real_
-    }
-    ## NaN to NA
-    y[!is.finite(y)] <- NA_real_
-    return(y)
+    return(compute_local_mean(x, bounds, na.rm = na.rm, min_obs = min_obs))
 }
 
 
@@ -630,10 +607,10 @@ filter_ma <- filter_moving_average
 #'     scale_colour_mnirs(name = NULL) +
 #'     ggplot2::geom_line(ggplot2::aes(y = noisy_sin)) +
 #'     ggplot2::geom_line(
-#'         ggplot2::aes(y = without_edge_detection, colour = "without_edge_detection")
+#'         ggplot2::aes(y = without_edge_detection, colour = "without")
 #'     ) +
 #'     ggplot2::geom_line(
-#'         ggplot2::aes(y = with_edge_detection, colour = "with_edge_detection")
+#'         ggplot2::aes(y = with_edge_detection, colour = "with")
 #'     )
 #'
 #' @export

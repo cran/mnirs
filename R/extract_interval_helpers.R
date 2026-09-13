@@ -28,6 +28,12 @@
 #'   - Explicit integer (e.g. `2L`) -> [by_lap()].
 #'   - Use [by_sample()] explicitly for sample indices.
 #'
+#' Multiple specification types can be combined for a single boundary with
+#' `list()` (e.g. `list(by_time(30), by_label("go"))`). Resolved
+#' boundary times are concatenated in the order supplied. Combined
+#' specifications must use the `by_` helpers directly: raw values are
+#' ignored with a warning.
+#'
 #' @returns An object of class `"mnirs_interval"` for use with the `start`
 #'   and `end` arguments of [extract_intervals()].
 #'
@@ -51,24 +57,23 @@
 #' ## start by lap
 #' extract_intervals(data, start = by_lap(2, 4), span = 0)
 #'
-#' ## introduce event_channel with "start" string
-#' data$event <- NA_character_
-#' data$event[1000] <- "start"
-#' data <- create_mnirs_data(data, event_channel = "event")
+#' ## combine multiple specification types
+#' extract_intervals(
+#'     data,
+#'     start = list(by_lap(2), by_time(400)),
+#'     end = by_sample(1500)
+#' )
 #'
-#' ## start by label, end by time
-#' extract_intervals(data, start = by_label("start"), end = by_time(1500))
+#' ## simulate event_channel with character label match
+#' data$event <- NA_character_
+#' data$event[c(1000, 1001)] <- c("start", "lap.1")
+#' data <- create_mnirs_data(data, event_channel = "event")
 #'
 #' ## case-insensitive label match
 #' extract_intervals(data, start = by_label("START", ignore_case = TRUE))
 #'
 #' ## literal-string label match (regex metacharacters treated as text)
-#' data$event[1000] <- "lap.1"
-#' data <- create_mnirs_data(data, event_channel = "event")
 #' extract_intervals(data, start = by_label("lap.1", fixed = TRUE))
-#'
-#' ## multiple intervals by sample index
-#' extract_intervals(data, start = by_sample(1000, 1500))
 #'
 #' @export
 by_time <- function(...) {
@@ -147,10 +152,47 @@ by_sample <- function(...) {
 #' @inheritParams validate_mnirs
 #' @keywords internal
 as_mnirs_interval <- function(x, arg = "start", env = rlang::caller_env()) {
-    if (is.null(x) || inherits(x, "mnirs_interval")) {
+    if (is.null(x) || inherits(x, c("mnirs_interval", "mnirs_interval_list"))) {
         return(x)
     }
-    ## integer before numeric — integers are also numeric in R
+    ## bare lists combine multiple by_* specs
+    if (is.list(x)) {
+        ## c() flattens spec components into a plain named list
+        if ("type" %in% names(x)) {
+            cli_abort(c(
+                "x" = "{.arg {arg}}: specifications combined with {.fn c}.",
+                "i" = "Combine multiple {.fn by_*} specifications with \\
+                {.fn list}."
+            ), call = env)
+        }
+        ## splice nested containers flat, drop NULL elements
+        # fmt: skip
+        specs <- unlist(lapply(x, \(.x) {
+                if (inherits(.x, "mnirs_interval_list")) {
+                    return(unclass(.x))
+                }
+                list(.x)
+            }), recursive = FALSE)
+        specs <- specs[lengths(specs) > 0L]
+        ## combined specs must use by_* directly: warn & ignore raw values
+        valid <- vapply(specs, inherits, logical(1), "mnirs_interval")
+        if (any(!valid)) {
+            cli_warn(c(
+                "!" = "{.arg {arg}}: ignoring {sum(!valid)} element{?s}.",
+                "i" = "Multiple {.arg start} and/or {.arg end} values must \\
+                be specified with {.fn by_*}."
+            ), call = warn_call(env))
+        }
+        specs <- specs[valid]
+        if (length(specs) == 0L) {
+            return(NULL)
+        }
+        if (length(specs) == 1L) {
+            return(specs[[1L]])
+        }
+        return(structure(specs, class = "mnirs_interval_list"))
+    }
+    ## integer before numeric -- integers are also numeric in R
     if (is.integer(x)) {
         return(by_lap(x))
     }
@@ -213,7 +255,7 @@ validate_interval_channels <- function(
 }
 
 
-#' recycle a single-element span to c(before, after)
+#' recycle a single-element span to c(start, end)
 #' positive -> c(0, x), negative -> c(x, 0)
 #' @inheritParams validate_mnirs
 #' @keywords internal
@@ -242,6 +284,13 @@ find_interval_time <- function(
     position = c("first", "last"),
     env = rlang::caller_env()
 ) {
+    ## multi-spec container: resolve each spec, concatenate in supplied order
+    # fmt: skip
+    if (inherits(interval, "mnirs_interval_list")) {
+        return(unlist(lapply(interval, \(.x) {
+            find_interval_time(.x, t_vec, event_vec, position, env)
+        }), use.names = FALSE))
+    }
     switch(
         interval$type,
         time = interval$by_time,
@@ -351,7 +400,8 @@ recycle_to_length <- function(
     n,
     name = c("event", "group"),
     verbose = TRUE,
-    env = rlang::caller_env()
+    env = rlang::caller_env(),
+    arg = "values"
 ) {
     n_param <- length(param)
 
@@ -362,8 +412,8 @@ recycle_to_length <- function(
     if (n_param > n) {
         if (verbose) {
             cli_inform(c(
-                "!" = "{.arg {substitute(param)}} exceeds the number of \\
-                {name}s by {.val {n_param - n}}.",
+                "!" = "{.arg {arg}} exceeds the number of {name}s by \\
+                {.val {n_param - n}}.",
                 "i" = "Extra values are ignored."
             ), call = env)
         }
@@ -373,7 +423,7 @@ recycle_to_length <- function(
     ## n_param < n:  recycle last element forward
     if (verbose && n_param > 1L) {
         cli_inform(c(
-            "i" = "{.arg {substitute(param)}} recycled to meet \\
+            "i" = "{.arg {arg}} recycled to meet \\
             {.val {n - n_param}} unspecified {name}{qty(n - n_param)}{?s}."
         ), call = env)
     }
@@ -394,8 +444,10 @@ validate_interval_groups <- function(
     }
 
     spec <- group_intervals[[1L]][1L]
-    if (length(group_intervals) == 1L &&
-            isTRUE(spec %in% c("distinct", "ensemble"))) {
+    if (
+        length(group_intervals) == 1L &&
+            isTRUE(spec %in% c("distinct", "ensemble"))
+    ) {
         return(invisible())
     }
 
@@ -454,7 +506,8 @@ recycle_param <- function(
     n_events,
     group_intervals,
     verbose = TRUE,
-    env = rlang::caller_env()
+    env = rlang::caller_env(),
+    arg = "values"
 ) {
     ## flatten nested lists to single-depth list
     param <- if (is.list(param)) {
@@ -465,13 +518,13 @@ recycle_param <- function(
 
     ## standard recycling to events for "distinct" or "ensemble"
     if (!is.numeric(group_intervals[[1L]])) {
-        return(recycle_to_length(param, n_events, "event", verbose, env))
+        return(recycle_to_length(param, n_events, "event", verbose, env, arg))
     }
 
     ## custom grouping: recycle per group, then map to event order;
     ## ungrouped events take the last group's value
     n_groups <- length(group_intervals)
-    param <- recycle_to_length(param, n_groups, "group", verbose, env)
+    param <- recycle_to_length(param, n_groups, "group", verbose, env, arg)
     ids <- unlist(group_intervals, use.names = FALSE)
     keep <- ids <= n_events
     event_to_group <- rep(n_groups, n_events)
@@ -663,25 +716,27 @@ ensemble_intervals <- function(
     channel_matrix <- as.matrix(df_long[valid, nirs_channels, drop = FALSE])
     channel_sums <- rowsum(channel_matrix, bins[valid], na.rm = TRUE)
     channel_counts <- rowsum(1L - is.na(channel_matrix), bins[valid])
-    result <- data.frame(
-        setNames(list(unique_times), time_channel),
-        as.data.frame(channel_sums / channel_counts)
-    )
+
+    ## event labels cannot be averaged: keep first sample per bin;
+    ## event_channel may be absent from df_long
+    first_rows <- valid[match(seq_along(unique_times), bins[valid])]
+    keep <- c(time_channel, intersect(metadata$event_channel, names(df_long)))
+    result <- df_long[first_rows, keep, drop = FALSE]
+    result[[time_channel]] <- unique_times
+    result[nirs_channels] <- as.data.frame(channel_sums / channel_counts)
 
     ## return with metadata
-    return(
-        create_mnirs_data(
-            result,
-            nirs_device = metadata$nirs_device,
-            nirs_channels = nirs_channels,
-            time_channel = time_channel,
-            event_channel = metadata$event_channel,
-            sample_rate = sample_rate,
-            start_timestamp = metadata$start_timestamp,
-            interval_times = lapply(interval_data, `[[`, "interval_times"),
-            interval_span = lapply(interval_data, `[[`, "interval_span")
-        )
-    )
+    return(create_mnirs_data(
+        result,
+        nirs_device = metadata$nirs_device,
+        nirs_channels = nirs_channels,
+        time_channel = time_channel,
+        event_channel = metadata$event_channel,
+        sample_rate = sample_rate,
+        start_timestamp = metadata$start_timestamp,
+        interval_times = lapply(interval_data, `[[`, "interval_times"),
+        interval_span = lapply(interval_data, `[[`, "interval_span")
+    ))
 }
 
 #' Zero-offset time values and add metadata
@@ -695,19 +750,17 @@ preserve_metadata <- function(data, metadata, zero_time = FALSE) {
         attr(data, "interval_times") <- interval_times - t0
     }
 
-    return(
-        create_mnirs_data(
-            data,
-            nirs_device = metadata$nirs_device,
-            nirs_channels = unique(attr(data, "nirs_channels")),
-            time_channel = metadata$time_channel,
-            event_channel = metadata$event_channel,
-            sample_rate = metadata$sample_rate,
-            start_timestamp = metadata$start_timestamp,
-            interval_times = attr(data, "interval_times"),
-            interval_span = attr(data, "interval_span")
-        )
-    )
+    return(create_mnirs_data(
+        data,
+        nirs_device = metadata$nirs_device,
+        nirs_channels = unique(attr(data, "nirs_channels")),
+        time_channel = metadata$time_channel,
+        event_channel = metadata$event_channel,
+        sample_rate = metadata$sample_rate,
+        start_timestamp = metadata$start_timestamp,
+        interval_times = attr(data, "interval_times"),
+        interval_span = attr(data, "interval_span")
+    ))
 }
 
 

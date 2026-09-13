@@ -17,8 +17,12 @@
 #' @importFrom rlang enquo
 #' @importFrom stats coef
 #' @importFrom stats median
+#' @importFrom stats nls
+#' @importFrom stats nls.control
+#' @importFrom stats predict
 #' @importFrom stats rnorm
 #' @importFrom stats setNames
+#' @importFrom stats sortedXyData
 #' @importFrom tibble tibble
 ## usethis namespace: end
 NULL

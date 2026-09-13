@@ -21,7 +21,12 @@ Can be either seperate named arguments or a list of named values.
 \item start_timestamp
 \item interval_times
 \item interval_span
-}}
+}
+
+\code{nirs_channels}, \code{time_channel}, and \code{event_channel} accept named
+character vectors in the same form as \code{read_mnirs()};
+\code{c(renamed = "original_name")}. Existing column names can be renamed,
+and the new names specified as \verb{*_channel} in metadata.}
 }
 \value{
 A \link[tibble:tibble-package]{tibble} of class \code{"mnirs"}. Metadata are stored
@@ -31,8 +36,8 @@ as attributes and can be accessed with \code{attributes(data)}.
 Manually add class \code{"mnirs"} and metadata to an existing data frame.
 }
 \details{
-Typically will only be called internally, but can be used to inject
-\emph{{mnirs}} metadata into any data frame.
+Intended primarily for internal use, but can be used to inject \emph{{mnirs}}
+metadata into any data frame.
 }
 \examples{
 data <- data.frame(
@@ -52,5 +57,12 @@ nirs_data <- create_mnirs_data(
 )
 
 attributes(nirs_data)
+
+## rename channels and update metadata
+create_mnirs_data(
+    nirs_data,
+    nirs_channels = c(smo2 = "B", thb = "C"),
+    time_channel = c(time = "A")
+)
 
 }

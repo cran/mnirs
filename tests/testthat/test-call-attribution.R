@@ -88,6 +88,43 @@ test_that("extract_intervals errors attribute to extract_intervals", {
     expect_equal(rlang::call_name(conditionCall(err)), "extract_intervals")
 })
 
+test_that("analyse_kinetics method errors attribute to the generic", {
+    data <- create_test_data()
+
+    ## method -> engine -> validate_kinetics_args() -> validate_numeric()
+    err <- expect_error(
+        analyse_kinetics(
+            data, method = "peak_slope", width = -5, verbose = FALSE
+        ),
+        "width"
+    )
+    expect_equal(rlang::call_name(conditionCall(err)), "analyse_kinetics")
+
+    err <- expect_error(
+        analyse_kinetics(
+            data, method = "response_time", response_fraction = 10, verbose = FALSE
+        ),
+        "response_fraction"
+    )
+    expect_equal(rlang::call_name(conditionCall(err)), "analyse_kinetics")
+    
+    err <- expect_error(
+        analyse_kinetics(
+            data, method = "sigmoidal", shape = "invalid", verbose = FALSE
+        ),
+        "shape"
+    )
+    expect_equal(rlang::call_name(conditionCall(err)), "analyse_kinetics")
+    
+    err <- expect_error(
+        analyse_kinetics(
+            data, method = "monoexponential", use_TD = "invalid", verbose = FALSE
+        ),
+        "use_TD"
+    )
+    expect_equal(rlang::call_name(conditionCall(err)), "analyse_kinetics")
+})
+
 test_that("warnings attribute to the top-level user-facing function", {
     skip_if_not_installed("signal")
     data <- create_test_data()

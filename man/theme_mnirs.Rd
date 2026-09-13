@@ -37,7 +37,8 @@ A \verb{[ggplot2][ggplot2::ggplot2-package]} theme for display.
 }
 \details{
 \itemize{
-\item \code{axis.title = element_text(face = "bold")} by \emph{default} Modify to \emph{"plain"}.
+\item \code{axis.title = element_text(face = "bold")} by \emph{default} Modify to
+\emph{"plain"}.
 \item \code{panel.grid.major} & \code{panel.grid.major} set to blank. Modify to
 \verb{= element_line()} for visible grid lines.
 \item \code{legend.position = "top"} by \emph{default} Modify \code{"none"} to remove legend

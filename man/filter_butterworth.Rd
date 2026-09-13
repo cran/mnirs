@@ -120,10 +120,10 @@ ggplot2::ggplot(data.frame(), ggplot2::aes(x = seq_along(noise))) +
     scale_colour_mnirs(name = NULL) +
     ggplot2::geom_line(ggplot2::aes(y = noisy_sin)) +
     ggplot2::geom_line(
-        ggplot2::aes(y = without_edge_detection, colour = "without_edge_detection")
+        ggplot2::aes(y = without_edge_detection, colour = "without")
     ) +
     ggplot2::geom_line(
-        ggplot2::aes(y = with_edge_detection, colour = "with_edge_detection")
+        ggplot2::aes(y = with_edge_detection, colour = "with")
     )
 \dontshow{\}) # examplesIf}
 }

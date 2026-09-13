@@ -47,16 +47,19 @@
 #' @param start Specifies where intervals begin. Either raw values -- numeric
 #'   for time values, character for event labels, explicit integer (e.g. `2L`)
 #'   for lap numbers -- or created with [by_time()], [by_label()], [by_lap()],
-#'   or [by_sample()].
+#'   or [by_sample()]. Multiple specifications can be combined with
+#'   `list()` (e.g. `list(by_time(30), by_label("go"))`); see *Details*.
 #'
 #' @param end Specifies where intervals end. Either raw values -- numeric for
 #'   time values, character for event labels, explicit integer (e.g. `2L`)
 #'   for lap numbers -- or created with [by_time()], [by_label()], [by_lap()],
-#'   or [by_sample()].
+#'   or [by_sample()]. Multiple specifications can be combined with
+#'   `list()` (e.g. `list(by_time(30), by_label("go"))`); see *Details*.
 #'
-#' @param span A one- or two-element numeric vector `c(before, after)` in units
-#'   of `time_channel`, or a `list()` of such vectors. (*default*
-#'   `span = c(-60, 60)`. Applied additively to interval boundaries:
+#' @param span A one- or two-element numeric vector expanding the time bounds
+#'   around `c(start, end)`, in units of `time_channel`; or a `list()` of such
+#'   vectors. (*default* `span = c(-60, 60)`. Applied additively to interval
+#'   boundaries:
 #'   - When both `start` and `end` are specified: `span[1]` shifts start times,
 #'     `span[2]` shifts end times.
 #'   - When only `start` or only `end` is specified: both `span[1]` and
@@ -99,6 +102,12 @@
 #' `start` and `end` can use different specification types (e.g., start by
 #' label, end by time). When lengths differ, the shorter is recycled.
 #'
+#' Multiple specification types can be combined for a single boundary with
+#' `list()` (e.g. `start = list(by_time(30), by_label("go"))`).
+#' Resolved boundary times are concatenated in the order supplied. Combined
+#' specifications must use the `by_` helpers directly: raw values are ignored
+#' with a warning.
+#'
 #' ## Time span window
 #'
 #' `span` additively expands the time span window around interval boundaries.
@@ -135,8 +144,8 @@
 #'
 #' ## Grouping intervals
 #'
-#' `group_intervals` controls whether extracted intervals are returned as distinct
-#' data frames or ensemble-averaged.
+#' `group_intervals` controls whether extracted intervals are returned as
+#' distinct data frames or ensemble-averaged.
 #'
 #' \describe{
 #'    \item{`"distinct"`}{The default. Extract each interval and return a
@@ -216,12 +225,12 @@ extract_intervals <- function(
     verbose = TRUE,
     event_groups = deprecated()
 ) {
-    ## list input → recurse per df, flatten nested interval lists
+    ## list input -> recurse per df, flatten nested interval lists
     if (!is.data.frame(data)) {
         nested <- map_mnirs_intervals(data, match.call(), parent.frame())
         ## rename intervals `interval_<df>.<interval>` before flattening;
         ## other names (e.g. "ensemble", <custom>) get `<name>_<df>` suffix
-        nested <- lapply(seq_along(nested), \(.i) {
+        result <- lapply(seq_along(nested), \(.i) {
             .x <- nested[[.i]]
             names(.x) <- ifelse(
                 startsWith(names(.x), "interval_"),
@@ -230,8 +239,9 @@ extract_intervals <- function(
             )
             .x
         })
-        result <- unlist(nested, recursive = FALSE)
-        class(result) <- c("mnirs", class(result))
+
+        result <- unlist(result, recursive = FALSE)
+        class(result) <- class(nested)
         return(result)
     }
 
@@ -278,15 +288,20 @@ extract_intervals <- function(
     if (is.null(c(start, end))) {
         cli_abort(c(
             "x" = "No interval specification provided.",
-            "i" = "Specify {.arg start} and/or {.arg end} using \\
-            {.fn by_time}, {.fn by_sample}, {.fn by_label}, or {.fn by_lap}."
+            "i" = "Multiple {.arg start} and/or {.arg end} values must be \\
+            specified with {.fn by_*}."
         ))
     }
 
     ## resolve event_channel if by_label or by_lap is used
-    uses_event_channel <- (inherits(start, "mnirs_interval") &&
-        start$type %in% c("label", "lap")) ||
-        (inherits(end, "mnirs_interval") && end$type %in% c("label", "lap"))
+    ## flatten single specs and containers to one plain spec list
+    specs <- c(
+        if (inherits(start, "mnirs_interval")) list(start) else unclass(start),
+        if (inherits(end, "mnirs_interval")) list(end) else unclass(end)
+    )
+    uses_event_channel <- any(
+        vapply(specs, `[[`, character(1), "type") %in% c("label", "lap")
+    )
 
     ## report conditions raised in handlers/lambdas from this function
     env <- environment()
@@ -325,13 +340,15 @@ extract_intervals <- function(
     validate_interval_groups(group_intervals, n_events, env)
 
     ## recycle params to match number of intervals
+    # fmt: skip
     group_channels <- recycle_param(
-        group_channels,
-        n_events,
-        group_intervals,
-        verbose
+        group_channels, n_events, group_intervals, verbose, 
+        arg = "group_channels"
     )
-    span <- recycle_param(span, n_events, group_intervals, verbose)
+    # fmt: skip
+    span <- recycle_param(
+        span, n_events, group_intervals, verbose, arg = "span"
+    )
 
     ## apply span and build interval spec ======================
     interval_spec <- apply_span(interval_list, t_vec, span, verbose)
@@ -350,7 +367,7 @@ extract_intervals <- function(
     )
 
     ## add class "mnirs" ========================================
-    class(result) <- c("mnirs", class(result))
+    class(result) <- unique(c("mnirs", class(result)))
 
     return(result)
 }

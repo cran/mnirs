@@ -1,3 +1,235 @@
+# mnirs 0.8.0
+
+The initial release of `analyse_kinetics()` and family of kinetics modelling functions!
+
+## `analyse_kinetics()`
+
+* `analyse_kinetics()` fits oxygenation response kinetics with parametric and non-parametric methods. It accepts a single *"mnirs"* data frame, a list of data frames, or a grouped data frame, analyses `nirs_channels` in each interval, and returns a formatted table of results.
+
+* See `?analyse_kinetics` for the canonical (i.e. human-verified) documentation of all methods, arguments, and returned objects.
+
+``` r
+analyse_kinetics(
+    data,
+    nirs_channels = c(smo2_left, smo2_right),
+    method = "monoexponential",
+    use_TD = TRUE,      ## use time delay parameter
+    direction = "auto"  ## auto-detect response direction
+) |> 
+    print() |>  ## the formatted table prints the coefficients
+    plot()      ## plot observations & fitted data
+```
+
+* `method` argument selects the kinetics model. Each has its own additional arguments:
+
+    * `"response_time"` — non-parametric fractional (e.g. 50%) response time.
+
+    * `"peak_slope"` — peak rolling linear least-squares regression slope.
+
+    * `"monoexponential"` — 3- or 4-parameter exponential curve fit via `stats::nls()`.
+
+    * `"exponential_drift"` — two-phase fast monoexponential primary response plus slow linear secondary drift.
+
+    * `"biexponential"` — two-phase fast primary and slow secondary exponential phases.
+
+    * `"sigmoidal"` — 4-parameter symmetric generalised logistic or Gompertz-family curve.
+
+    * `"sigmoidal_drift"` — two-phase fast sigmoidal primary response plus slow linear secondary drift.
+
+* Most arguments can be supplied globally or per-channel and per-interval. However, `method` itself currently only accepts a single global model for all channels.
+
+* Results are returned as a structured list of class *"mnirs_kinetics"*, containing:
+
+    * `method`: the selected kinetics model.
+    * `model`: the `lm` or `nls` objects.
+    * `coefficients`: resultant model parameters.
+    * `data`: the input data augmented with `*_fitted` columns per `nirs_channel`.
+    * `interval_times`: `start_times` and `end_times` of the analysed intervals.
+    * `diagnostics`: fit quality and model validation parameters used to evaluate and compare model fits.
+    * `channel_args`: selected per-channel and per-interval args.
+    * `warnings`: any warning and error messages generated during fitting.
+    * `call`: the matched call.
+
+* `print.mnirs_kinetics()` returns a formatted coefficients table, and `plot.mnirs_kinetics()` displays the observed data overlaid with fitted curves for each channel and interval.
+
+
+## Vector-level and model functions
+
+The individual fitting methods called by `analyse_kinetics()` can be called directly outside of the *"mnirs"* data structure:
+
+* `response_time()` and `peak_slope()` estimate kinetics directly from a numeric vector `x` over `t`, and return a named list of coefficients (with the `lm` model object for `peak_slope()`).
+
+``` r
+peak_slope(x, t, width = 5, direction = "auto")
+
+response_time(x, t, response_fraction = c(0.5, 0.632))
+```
+
+* `monoexponential()`, `exponential_drift()`, `biexponential()`, `logistic()`, `gompertz()`, `gompertz_left()`, and `sigmoidal_drift()` contain the parametric equations for each model response curves. They can be used to construct a pure curve from explicit parameters, to simulate data, or plotting a fitted model.
+
+``` r
+t <- 1:100
+monoexponential(t, A = 10, B = 100, tau = 8, TD = 15)
+
+sigmoidsl(t, A = 10, B = 100, xmid = 30, slope = 4)
+```
+
+* `SSmonoexponential()`, `SSexponential_drift()`, `SSbiexponential()`, `SSlogistic()`, `SSgompertz()`, `SSgompertz_left()`, and `SSsigmoidal_drift()` are the matching self-starting (`selfStart`) wrappers, which generate their own initial parameter estimates and can be fit directly with `stats::nls()`.
+
+``` r
+nls(x ~ SSmonoexponential(t, A, B, tau, TD), data = data)
+
+nls(x ~ SSlogistic(t, A, B, xmid, slope), data = data)
+```
+
+## mV̇O~2~ recovery kinetics and muscle Oxidative Capacity assessment
+
+An emerging method using in mNIRS research, a series of repeated brief occlusions can be used to estimate the recovery rate of muscle oxygen uptake from NIRS channels, as a proxy for muscle oxidative capacity. This method can be performed in *{mnirs}* using recursive calls to `analyse_kinetics()`:
+
+* A sequence of data frames containing occlusion intervals (i.e. extracted with `extract_intervals()`) can be passed to `analyse_kinetics(method = "peak_slope")` with appropriate arguments.
+
+* The result can be passed directly to another call of `analyse_kinetics()`, with resulting coefficients supplied explicitly as `time_channel` and `nirs_channels`. `method` will usually be selected as `"monoexponential"` to determine the rate constant (`k`) of mV̇O~2~ recovery (also see *Articles* below).
+
+``` r
+## fit an exponential through the peak slopes of successive occlusions
+analyse_kinetics(
+    occlusion_intervals,
+    nirs_channels = hhb,
+    method = "peak_slope",
+    span = 3,
+) |> 
+    print() |>  ## print intermediate results and pass along
+    analyse_kinetics(
+        nirs_channels = slope,
+        time_channel = peak_slope_time,
+        method = "monoexponential",
+        group_intervals = list(trial1 = 1:10, trial2 = 11:20)
+    )
+```
+
+
+## Correcting for blood volume changes
+
+* `correct_blood_volume()` is used to normalise NIRS components signals — i.e. *oxy[haem] and deoxy[haem]* — for changes in *total[haem]*, which is a proxy for local blood volume/perfusion. This can be done before further analysis, to isolate metabolic O~2~ from mechanical haemodynamics. See `?correct_blood_volume`.
+
+## Articles
+
+* *"Analysing muscle oxidative capacity with mnirs"* walks through a full arterial occlusion OxCap analysis: correcting for blood volume, extracting occlusion intervals, finding peak deoxy[haem] slopes, and fitting a monoexponential through the slope estimates to estimate the mV̇O~2~ recovery rate constant *k*.
+
+* *"Reading and analysing PIONIRS data with mnirs"* demonstrates reading new TD-NIRS `.ftn` & `.ftn2` files, and compares different fit methods to occlusion reoxygenation kinetics.
+
+
+
+# mnirs 0.7.2
+
+## `read_mnirs()`
+
+* Reading all files, in particular `.csv`, is faster and allocates less memory.
+
+* Files can now be read from **PIONIRS NIRSBOX**, an advanced time-domain *TD-NIRS* device.
+
+    * PIONIRS explors file types `.ftn` and `.ftn2` for single- and dual-channel TD-NIRS, respectively.
+    
+    * `read_mnirs()` will automatically detect channels `StO2`, `Time`, and `TagLabel`.
+    
+    * Example file `pionirs_occlusion.ftn2` can be called with `example_mnirs()` (Thanks to Marianna, Dr. Porcelli, and PIONIRS for the demo files).
+
+``` r
+example_mnirs("pionirs")
+#> [1] "<R library>/mnirs/inst/extdata/pionirs_occlusion.ftn2"
+```
+
+* **Artinis Oxysoft** file exports are now automatically read more consistently, using the file metadata and *Legend* to rename channels:
+
+    * *"(Sample number)"* (column `1`) is renamed *"sample"* with a derived *"time"* column which is set to `time_channel`.
+    
+    * *"(Event)"* (the last numbered column with event markers) is renamed *"event"* and is set as `event_channel`. The trailing un-numbered column with event labels is renamed *"labels"*, and can be explicitly renamed: `event_channel = c(labels = "labels")`.
+
+    * All other channels in the *Legend* are renamed and returned as `nirs_channels` by default with clean, lower case names (e.g. *"Rx1 - Tx1 O2Hb"* is renamed as *"rx1_tx1_o2hb"*).
+    
+    * Channels can be renamed from either their literal *Legend* names; e.g. `nirs_channels = c(o2hb = 2)`, `c(o2hb = "rx1_tx1_o2hb")`, or `c(o2hb = "Rx1 - Tx1 O2Hb")`.
+
+* `create_mnirs_data()` can now rename `nirs_channels`, `time_channel`, and `event_channel` and add the renamed column names to metadata.
+
+``` r
+df <- create_mnirs_data(
+    PIONIRS_ftn2,
+    nirs_channels = c(o2hb = "O2Hb(CH1)", hhb = "HHb(CH1)", thb = "THb(CH1)"),
+    time_channel = c(time = "Time"),
+    event_channel = c(labels = "TagLabel")
+)
+
+attr(df, "nirs_channels")
+# [1] "o2hb" "hhb"  "thb" 
+```
+
+## Core processing functions
+
+* `extract_intervals()` now accepts a list of multiple `start` and/or `end` values with mixed `by_time()`, `by_label()`, `by_lap()`, or `by_sample()`. Intervals are matched by user-specified order.
+
+``` r
+## combine multiple specification types for one boundary
+extract_intervals(
+    data, 
+    start = list(by_lap(2), by_time(400)),
+    end = list(by_lap(3), by_label("10-min marker"))
+)
+```
+
+* `extract_intervals()` Also now properly retains `event_channel` column in ensemble-averaged intervals (`group_intervals = "ensemble"` or custom groups).
+
+* `plot_mnirs()`: small adjustments to plot spacing & point sizes.
+
+* `palette_mnirs()` now returns unnamed colours, which was disrupting use with `ggplot2::scale_colour_manual()`.
+
+``` r
+custom_colours <- c(
+    smo2_left_vl = palette_mnirs("pink"),
+    smo2_right_vl = palette_mnirs("light blue"),
+    smo2_left_rf = palette_mnirs("purple"),
+    smo2_right_rf = palette_mnirs("dark blue")
+)
+# smo2_left_vl smo2_right_vl  smo2_left_rf smo2_right_rf 
+#  "#ff80ff"   "#0080ff"   "#9f79ee" "#00468Bff" 
+
+plot(result) +
+    scale_colour_manual(
+        values = c(
+            smo2_left_vl = palette_mnirs("pink"),
+            smo2_right_vl = palette_mnirs("light blue"),
+            smo2_left_rf = palette_mnirs("purple"),
+            smo2_right_rf = palette_mnirs("dark blue")
+        )
+    )
+
+```
+
+* `print.mnirs()` now returns its object invisibly, so can be called incrementally within a function pipeline (which I just learned was possible!).
+
+``` r
+read_mnirs(...) |> 
+    print() |>  ## intermediate view data frame
+    extract_intervals(...) |> 
+    print() |>  ## view returned list of data frames
+    plot()      ## and plot those results
+```
+
+## Package accessories
+
+* *"README"* and *"Reading and Cleaning Data with mnirs"* vignette edited with updated functionality and consistent formatting.
+
+* Included example *"moxy_intervals.csv"* modified *"Lap"* column coincides with intervals start & end, for testing with `extract_intervals()`.
+
+
+
+# mnirs 0.7.1
+
+* `shift_mnirs()` now properly excludes partial windows at data edges, where fewer samples can bias calculation of *"min"* or *"max"* shift values on noise.
+
+* `replace_mnirs()`, `shift_mnirs()`, and `filter_moving_average()` should gain a serious performance improvement when calculating rolling means, at the cost of negligible loss of precision on the order of ± ~1e-11.
+
+* Lists of data frames exported from core functions now contain `class = "mnirs"` and should now `plot()` properly.
+
 # mnirs 0.7.0
 
 ## Highlights

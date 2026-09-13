@@ -77,16 +77,19 @@ occurs.
 \item{start}{Specifies where intervals begin. Either raw values -- numeric
 for time values, character for event labels, explicit integer (e.g. \code{2L})
 for lap numbers -- or created with \code{\link[=by_time]{by_time()}}, \code{\link[=by_label]{by_label()}}, \code{\link[=by_lap]{by_lap()}},
-or \code{\link[=by_sample]{by_sample()}}.}
+or \code{\link[=by_sample]{by_sample()}}. Multiple specifications can be combined with
+\code{list()} (e.g. \code{list(by_time(30), by_label("go"))}); see \emph{Details}.}
 
 \item{end}{Specifies where intervals end. Either raw values -- numeric for
 time values, character for event labels, explicit integer (e.g. \code{2L})
 for lap numbers -- or created with \code{\link[=by_time]{by_time()}}, \code{\link[=by_label]{by_label()}}, \code{\link[=by_lap]{by_lap()}},
-or \code{\link[=by_sample]{by_sample()}}.}
+or \code{\link[=by_sample]{by_sample()}}. Multiple specifications can be combined with
+\code{list()} (e.g. \code{list(by_time(30), by_label("go"))}); see \emph{Details}.}
 
-\item{span}{A one- or two-element numeric vector \code{c(before, after)} in units
-of \code{time_channel}, or a \code{list()} of such vectors. (\emph{default}
-\code{span = c(-60, 60)}. Applied additively to interval boundaries:
+\item{span}{A one- or two-element numeric vector expanding the time bounds
+around \code{c(start, end)}, in units of \code{time_channel}; or a \code{list()} of such
+vectors. (\emph{default} \code{span = c(-60, 60)}. Applied additively to interval
+boundaries:
 \itemize{
 \item When both \code{start} and \code{end} are specified: \code{span[1]} shifts start times,
 \code{span[2]} shifts end times.
@@ -102,9 +105,9 @@ of \code{time_channel}, or a \code{list()} of such vectors. (\emph{default}
 numeric \code{time_channel} values to start from zero within each interval
 data frame.}
 
-\item{verbose}{Logical. Default is \code{TRUE}. Display or silence (if \code{FALSE})
-warnings and information messages helpful for troubleshooting. Ad
-global default can be set via \code{options(mnirs.verbose = FALSE)}.}
+\item{verbose}{Logical. \code{TRUE} (\emph{default}) will display, and \code{FALSE} will
+silence warnings and information messages helpful for troubleshooting.
+Global default can be set via \code{options(mnirs.verbose = FALSE)}.}
 
 \item{event_groups}{\ifelse{html}{\href{https://lifecycle.r-lib.org/articles/stages.html#deprecated}{\figure{lifecycle-deprecated.svg}{options: alt='[Deprecated]'}}}{\strong{[Deprecated]}} Renamed to
 \code{group_intervals} for naming consistency across the package.}
@@ -147,6 +150,12 @@ Raw values supplied to \code{start}/\code{end} are auto-coerced:
 
 \code{start} and \code{end} can use different specification types (e.g., start by
 label, end by time). When lengths differ, the shorter is recycled.
+
+Multiple specification types can be combined for a single boundary with
+\code{list()} (e.g. \code{start = list(by_time(30), by_label("go"))}).
+Resolved boundary times are concatenated in the order supplied. Combined
+specifications must use the \code{by_} helpers directly: raw values are ignored
+with a warning.
 }
 
 \subsection{Time span window}{
@@ -187,8 +196,8 @@ within every group.
 
 \subsection{Grouping intervals}{
 
-\code{group_intervals} controls whether extracted intervals are returned as distinct
-data frames or ensemble-averaged.
+\code{group_intervals} controls whether extracted intervals are returned as
+distinct data frames or ensemble-averaged.
 
 \describe{
 \item{\code{"distinct"}}{The default. Extract each interval and return a

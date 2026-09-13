@@ -20,7 +20,7 @@ Channel mapping for \code{\link[=read_mnirs]{read_mnirs()}}:
 \itemize{
 \item \code{nirs_channels = c("SmO2 Live", "SmO2 Averaged", "THb")}
 \item \code{time_channel = c("hh:mm:ss")}
-\item \code{interval_times = list(start = c(124, 486, 848, 1210), end = c(364, 726, 1088, 1450))}
+\item \code{interval_times = list( start = c(124, 486, 848, 1210), end = c(364, 726, 1088, 1450))}
 }
 }
 \source{

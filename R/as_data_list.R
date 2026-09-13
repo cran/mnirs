@@ -1,8 +1,32 @@
 #' Coerce `data` input to a named list of data frames
+#'
+#' Accepts a single or grouped data frame, a list of data frames, or an
+#' *"mnirs_kinetics"* object, whose `coefficients` are split by
+#' `nirs_channels` into one data frame per channel (a row per interval) for
+#' recursive analysis of coefficients.
+#'
 #' @inheritParams validate_mnirs
 #' @keywords internal
 as_data_list <- function(data, env = rlang::caller_env()) {
-    ## grouped data frame → split by groups
+    ## kinetics result -> split coefficients by channel, one df per channel
+    ## with a row per interval, for recursive analysis of coefficients
+    if (inherits(data, "mnirs_kinetics")) {
+        coefs <- data$coefficients
+        if (!is.data.frame(coefs)) {
+            cli_abort(c(
+                "x" = "{.cls mnirs_kinetics} input must contain a \\
+                {.field coefficients} data frame.",
+                "i" = "Check the object returned from {.fn analyse_kinetics}."
+            ), call = env)
+        }
+        chan <- factor(coefs$nirs_channels, unique(coefs$nirs_channels))
+        ## retain source interval labels without an `interval` column, which
+        ## would hijack facet detection in `plot.mnirs()`
+        names(coefs)[names(coefs) == "interval"] <- "source_interval"
+        return(lapply(split(coefs, chan), `rownames<-`, NULL))
+    }
+
+    ## grouped data frame -> split by groups
     if (inherits(data, "grouped_df")) {
         if (!requireNamespace("dplyr", quietly = TRUE)) {
             cli_abort(c(
@@ -33,16 +57,16 @@ as_data_list <- function(data, env = rlang::caller_env()) {
         return(data_list)
     }
 
-    ## single data frame → length-1 list
+    ## single data frame -> length-1 list
     if (is.data.frame(data)) {
         return(setNames(list(data), "interval_1"))
     }
 
-    ## list of data frames — validate
+    ## list of data frames -- validate
     if (!is.list(data) || !all(vapply(data, is.data.frame, logical(1)))) {
         cli_abort(
-            "{.arg data} must be a list of data frames, or a single grouped \\
-            or ungrouped data frame.",
+            "{.arg data} must be a list of data frames, a single grouped \\
+            or ungrouped data frame, or an {.cls mnirs_kinetics} object.",
             call = env
         )
     }
@@ -86,8 +110,8 @@ as_data_list <- function(data, env = rlang::caller_env()) {
 #'   data frame is split by grouping levels and each group is processed as
 #'   a separate interval, returned as a named list.
 #'
-#' @returns A named list of processed *"mnirs"* data frames, one per
-#'   interval.
+#' @returns A named list of class *"mnirs"* containing processed *"mnirs"*
+#'   data frames, one per interval.
 #'
 #' @keywords internal
 map_mnirs_intervals <- function(
@@ -97,8 +121,12 @@ map_mnirs_intervals <- function(
     env = rlang::caller_env()
 ) {
     data_list <- as_data_list(data, env = env)
-    return(lapply(data_list, \(.df) {
+    result <- lapply(data_list, \(.df) {
         call$data <- .df
         eval(call, envir = eval_env)
-    }))
+    })
+    ## class list for `plot.mnirs()` / `print.mnirs()` dispatch
+    class(result) <- unique(c("mnirs", class(result)))
+
+    return(result)
 }

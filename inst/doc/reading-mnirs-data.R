@@ -15,11 +15,16 @@ nirs_channels = c(
 
 
 ## -----------------------------------------------------------------------------
-## {mnirs} includes sample files from a few NIRS devices
+## {mnirs} includes sample files from a few mNIRS devices
 example_mnirs()
 
 ## partial matching will error if matches multiple
 try(example_mnirs("moxy"))
+
+## automatically detect known file formats to explore the data
+read_mnirs(
+    file_path = example_mnirs("artinis")
+)
 
 data_raw <- read_mnirs(
     file_path = example_mnirs("moxy_ramp"), ## call an example data file
@@ -36,7 +41,7 @@ data_raw <- read_mnirs(
     verbose = TRUE                  ## show warnings & messages
 )
 
-## Note the above info message that sample_rate was estimated correctly at 2 Hz ☝
+## Note the above info message that sample_rate was estimated correctly at 2 Hz 👆
 ## ignore the warnings about irregular sampling for now, we will resample later
 
 data_raw
@@ -112,7 +117,7 @@ plot(data_filtered, time_labels = TRUE) +
 ## -----------------------------------------------------------------------------
 data_shifted <- shift_mnirs(
     data_filtered,
-    group_channels = list(smo2_left, smo2_right), ## 👈 channels shifted separately
+    group_channels = list(smo2_left, smo2_right), ## channels shifted separately
     to = 0,            ## NIRS values will be shifted to zero
     span = 120,        ## shift the *first* 120 sec of data to zero
     position = "first"
@@ -125,7 +130,7 @@ plot(data_shifted, time_labels = TRUE) +
 ## -----------------------------------------------------------------------------
 data_rescaled <- rescale_mnirs(
     data_filtered,
-    group_channels = list(smo2_left, smo2_right), ## 👈 channels rescaled separately
+    group_channels = list(smo2_left, smo2_right), ## channels rescaled separately
     range = c(0, 100) ## rescale to a 0-100% functional exercise range
 )
 

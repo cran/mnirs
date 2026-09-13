@@ -1,99 +1,131 @@
 #' Read *{mnirs}* data from file
 #'
 #' Import time-series data exported from common muscle NIRS (mNIRS) devices and
-#' return a tibble of class `"mnirs"` with the selected signal channels and
-#' metadata.
+#' return a [tibble][tibble::tibble-package] (data frame) of class `"mnirs"`
+#' with the specified signal channels and metadata.
 #'
 #' @param file_path Path of the data file to import. Supported file extensions
-#'   include `".xlsx"`, `".xls"`, `".csv"`, and `".txt"`.
+#'   include `".xls(x)"`, `".csv"`, `".txt"`, and `".ftn(2)"`.
 #'
 #' @param nirs_channels A character vector of one or more column names
-#'   containing mNIRS signals to import. Names must match the file header
+#'   containing mNIRS signals to import. Names must match the file contents
 #'   exactly.
 #'
-#'   - If `NULL` (default), `read_mnirs()` attempts to detect the device from
-#'     the file contents and use a known `nirs_channel` name.
-#'   - A *named* character vector can be used to rename columns on import, in
-#'     the form `c(renamed = "original_name")`.
+#'   - If `NULL` (*default*), `read_mnirs()` attempts to automatically detect
+#'     known `nirs_channel` names from the file contents.
+#'   - A named character vector is used to rename columns, in the form
+#'     `c(renamed = "original_name")`.
 #'
-#' @param time_channel A character string giving the name of the time
-#'   (or sample) column to import. The name must match the file header exactly.
+#' @param time_channel A single character vector for the time (or sample)
+#'   column name. Must match the file contents exactly.
 #'
-#'   - If `NULL` (default), `read_mnirs()` attempts to identify a time-like
-#'     column automatically (by known device defaults and/or time-formatted
-#'     values).
-#'   - A *named* character vector can be used to rename the column on import,
-#'     in the form `c(time = "original_name")`.
+#'   - If `NULL` (*default*), `read_mnirs()` attempts to automatically detect
+#'     a time-like column from known device defaults, and/or time-formatted
+#'     values.
+#'   - A named character vector is used to rename the column, e.g.
+#'     `c(time = "original_name")`.
 #'
-#' @param event_channel An *optional* character string giving the name of an
-#'   event/lap column to import. Names must match the file header exactly.
-#'   A named character vector can be used to rename the column on import in
-#'   the form `c(event = "original_name")`.
+#' @param event_channel An *optional* single character vector for the event
+#'   or lap column name. Must match the file contents exactly. A named
+#'   character vector is used to rename the column, e.g.
+#'   `c(event = "original_name")`.
 #'
-#' @param sample_rate An *optional* numeric sample rate in Hz. If left blank
-#'   (`NULL`), the sample rate is estimated from `time_channel` (see *Details*).
+#' @param sample_rate An *optional* numeric sample rate in Hz. If `NULL`
+#'   (*default*), the sample rate is estimated from `time_channel` (see
+#'   *Details*).
 #'
-#' @param add_timestamp A logical. Default is `FALSE`. If `TRUE` and if the
-#'   source data contain an absolute date-time (POSIXct) time value, will add
-#'   a `"timestamp"` column in addition to the specified `time_channel` as a
-#'   numeric time column.
+#' @param add_timestamp Logical. Default is `FALSE`. If `TRUE` and the
+#'   source data contain date-time (POSIXct) values, will add a `"timestamp"`
+#'   column in addition to the specified `time_channel` as a numeric time
+#'   column.
 #'
 #' @param zero_time Logical. Default is `FALSE`. If `TRUE`, re-calculates
 #'   numeric `time_channel` values to start from zero.
 #'
-#' @param keep_all Logical. Default is `FALSE`. Will keep only the channels
-#'   explicitly specified in `nirs_channels`, `time_channel`, and
-#'   `event_channel`. If `TRUE` will keep all columns found in the file
-#'   data table.
+#' @param keep_all Logical. `FALSE` (*default*) will only keep the channels
+#'   explicitly specified in `channels`. If `TRUE`, will keep all columns
+#'   found in the file data table.
 #'
-#'   - If no `nirs_channels` are specified and the file format is recognised,
-#'     all columns in the file data table will be returned, as an exploratory
-#'     option.
+#'   - If no `channels` are specified and the NIRS device file format is
+#'     recognised, then all columns in the file data table will be returned
+#'     to allow exploration of the file.
 #'
-#' @param verbose Logical. Default is `TRUE`. Display or silence (if `FALSE`)
-#'   warnings and information messages helpful for troubleshooting. Ad
-#'   global default can be set via `options(mnirs.verbose = FALSE)`.
+#' @param verbose Logical. `TRUE` (*default*) will display, and `FALSE` will
+#'   silence warnings and information messages helpful for troubleshooting.
+#'   Global default can be set via `options(mnirs.verbose = FALSE)`.
 #'
 #' @details
 #' ## Header detection
 #' `read_mnirs()` searches the file for a header row containing the requested
 #' channel names. The header row does not need to be the first row in the file.
 #'
-#' - If duplicate column names exist, columns are matched in the order they
-#'   appear and renamed with unique strings.
-#' - Columns without a header name in the source file will be renamed to
-#'   `col_*`, where `*` is the numeric column number in which they appear in
-#'   the file (e.g. `col_6`). This applies to *Artinis Oxysoft* event label
-#'   columns, which do not have a column header and must be identified manually.
+#' - If duplicate column names exist, they are made unique with a numbered
+#'   suffix (e.g. `*_1`), and can be renamed accordingly:
+#'   `nirs_channels = c(smo2_left = "smo2", smo2_right = "smo2_1")`.
+#' - Unnamed columns containing data in the source file will be renamed to
+#'   `col_n`, where `n` is the ordered column number in the file (e.g.
+#'   `col_6`). *Artinis Oxysoft* files are an exception to this renaming
+#'   convention. See *Artinis Oxysoft exports* below).
 #'
 #' ## Renaming channels
-#' A named character vector can be specified to rename `nirs_channels`,
-#' `time_channel`, and `event_channel`, in the form
-#' `c(renamed = "original_name")`. The `"original_name"` must match the
-#' contents of the file data table header row exactly.
+#' All `channels` can be renamed with a named character vector in the form
+#' `c(renamed = "original_name")`. The `"original_name"` must match
+#' the file contents header row exactly.
+#'
+#' ## Artinis Oxysoft exports
+#' *Artinis Oxysoft* files have numbered data columns, with a "Legend"
+#' metadata block with channel names. `read_mnirs()` can detect and rename
+#' these channels automatically:
+#'
+#' - `nirs_channels` names become clean lower-case column names with
+#'   underscores (e.g. `"Rx1 - Tx1 O2Hb"` becomes `rx1_tx1_o2hb`). Channels
+#'   can still be renamed by any of column number, cleaned name, or legend
+#'   trace name, e.g. `nirs_channels = c(o2hb = 2)`,
+#'   `c(o2hb = "rx1_tx1_o2hb")`, or `c(o2hb = "Rx1 - Tx1 O2Hb")`.
+#' - `"(Sample number)"` column is renamed `sample`, and a `time` column
+#'   in seconds is automatically derived from the export sample rate.
+#' - `"(Event)"` column is renamed `event` and set as `event_channel`.
+#' - *Oxysoft* exports a trailing un-numbered column containing optional
+#'   event label text. This is renamed `labels` and returned with
+#'   `keep_all = TRUE`, or dropped when empty. It can be selected as the
+#'   event column explicitly with `event_channel = c(event = "labels")`.
+#'
+#' Explicit `nirs_channels`, `time_channel`, and `event_channel` renaming
+#' (as above) overrides automatically detected names.
+#'
+#' ## PIONIRS exports
+#' *PIONIRS* `.ftn(2)` files are detected with `"Time"` as `time_channel`,
+#' `"TagLabel"` as `event_channel`, and `StO2` channels as `nirs_channels`.
+#' The `"Iteration"` sample index and numeric `"Tag"` companion columns are
+#' returned beside `time_channel` and `event_channel` with `keep_all = TRUE`.
 #'
 #' ## Time parsing
-#' `time_channel` will be converted to numeric for analysis.
+#' If `time_channel` is left as `NULL`, it can be resolved from a known
+#' NIRS device default, or by detecting a time-like column name (e.g.
+#' `"time"`, `"hh:mm:ss"`), or by detecting a column with date-time formatted
+#' (POSIXct-like) values.
 #'
-#' - If `time_channel` is a date-time (POSIXct) format, it will be converted
-#'   to numeric and re-based to start from 0, regardless of `zero_time`.
-#' - Some devices export a sample index rather than time values. In those
-#'   cases, if an export `sample_rate` is detected in the file metadata (e.g.
-#'   *Artinis Oxysoft* exports), `read_mnirs()` will create or overwrite a
-#'   `"time"` column in seconds derived from the sample index and the detected
-#'   `sample_rate`.
+#' If `time_channel` is a date-time (POSIXct) format, it will be converted
+#' to numeric and re-based to start from `0`, regardless of `zero_time`.
 #'
 #' ## Sample rate
 #' If `sample_rate` is not specified, it is estimated from differences in
-#' `time_channel`. If `time_channel` is actually a sample index, as described
-#' above, this may erroneously be estimated at 1 Hz. `sample_rate` should be
-#' specified explicitly in this case.
+#' `time_channel`. When irregular time sampling is detected, the estimated
+#' median `sample_rate` will be approximated as common known recording rate
+#' (e.g. an estimated rate of `11` may be rounded to `10 Hz`).
+#'
+#' If `time_channel` is specified as a sample index (e.g.
+#' *Artinis Oxysoft "sample"* or *PIONIRS "Iterations"*), `sample_rate` will
+#' be mis-estimated as `1 Hz`. `sample_rate` should be specified explicitly in
+#' this case.
 #'
 #' ## Data cleaning
 #' Entirely empty rows and columns are removed. Invalid values (e.g.
-#' `c(NaN, Inf)`) are standardized to `NA`. A warning will be displayed when
-#' irregular sampling is detected (e.g. non-monotonic, repeated, or unequal
-#' time values), if `verbose = TRUE`.
+#' `c(NaN, Inf, "-")`) are standardized to `NA`. A warning is displayed
+#' (respecting `verbose`) when irregular sampling is detected (e.g.
+#' non-monotonic, repeated, or unequal `time_channel` values). In this case,
+#' it is recommended to use `resample_mnirs()` to standardise the time grid to
+#' the desired `sample_rate`.
 #'
 #' @returns
 #' A [tibble][tibble::tibble-package] of class `"mnirs"`. Metadata are stored
@@ -132,105 +164,103 @@ read_mnirs <- function(
         verbose <- getOption("mnirs.verbose", default = TRUE)
     }
 
-    ## import data_raw from either excel or csv
-    data <- read_file(file_path)
+    ## import raw character table & detect device
+    raw <- read_file(file_path)
+    device <- detect_mnirs_device(raw)
+    nirs_device <- device$nirs_device
 
-    ## detect mNIRS device from raw data. Returns NULL if not found
-    detected_list <- detect_mnirs_device(data)
-    nirs_device <- detected_list$nirs_device
-    header_row <- detected_list$header_row
-
-    ## resolve channels: use user input if provided, otherwise detect from
-    ## known device channel names. Errors if neither available.
-    channels <- detect_device_channels(
-        data,
-        header_row,
-        nirs_device,
-        nirs_channels,
-        time_channel,
-        keep_all,
-        verbose
-    )
-    nirs_channels <- channels$nirs_channels
-    time_channel <- channels$time_channel
-    keep_all <- channels$keep_all ## TRUE when `nirs_channels` unspecified
-
-    ## extract the data_table, and name by header row
-    table_list <- read_data_table(data, header_row, nirs_channels)
-    data <- table_list$data_table
-    file_header <- table_list$file_header
-
-    ## attempt to detect `time_channel` automatically
-    time_channel <- detect_time_channel(
-        data,
-        time_channel,
-        nirs_device,
-        verbose
+    ## user channels as `c(new = "original")`
+    user <- lapply(
+        list(time = time_channel, event = event_channel, nirs = nirs_channels),
+        name_channels
     )
 
-    ## rename from channel names, make duplicates unique, keep columns
-    ## return list(data_renamed, nirs_renamed, time_renamed, event_renamed)
-    renamed_list <- select_rename_data(
-        data,
-        nirs_channels,
-        time_channel,
-        event_channel,
-        keep_all,
-        verbose
-    )
-    data <- renamed_list$data
-    nirs_renamed <- renamed_list$nirs_channel
-    time_renamed <- renamed_list$time_channel
-    event_renamed <- renamed_list$event_channel
+    ## `keep_all` coerced to `TRUE` when `nirs_channels` are auto-detected,
+    ## otherwise respect user supplied `keep_all`
+    keep_all <- keep_all || is.null(nirs_channels)
 
-    ## remove empty (NA) columns and rows
+    ## resolve channels from user input, device defaults, or Oxysoft legend
+    ## as named `c(new = "original")` by role; role order = column order
+    channels <- resolve_channels(raw, device, user, keep_all, verbose)
+    header_row <- find_header_row(raw, channels$nirs, device$header_row)
+    header <- raw[seq_len(header_row), ]
+
+    ## name data table by header row
+    ## blank/duplicate names made unique
+    data <- setNames(
+        raw[-seq_len(header_row), ],
+        rename_duplicates(as.character(raw[header_row, ]))
+    )
+    channels$time <- channels$time %||%
+        name_channels(detect_time_channel(data, verbose))
+
+    ## select, rename, and order channel columns
+    selected <- select_channels(data, channels, keep_all, verbose)
+    data <- selected$data
+    channels <- selected$channels
+
+    ## remove empty rows and columns
+    ## drop metadata for an empty event column
     data <- remove_empty_rows_cols(data)
-    ## convert char decimal "," to "." and convert column types
-    data <- convert_type(
-        data,
-        nirs_renamed,
-        time_renamed,
-        event_renamed,
-        verbose
-    )
-    ## convert POSIXct to numeric and/or recalc time from zero
-    ## defer header parsing unless the time channel lacks an absolute timestamp
+    event <- intersect(channels$event, names(data))
+    channels["event"] <- list(if (length(event) > 0L) event)
+
+    ## convert decimal "," to "." and column types by role
+    data <- convert_type(data, channels, verbose)
+
+    ## time to numeric, header timestamp parsed lazily only when the
+    ## time series lacks an absolute date-time
     time_list <- parse_time_channel(
-        data,
-        time_renamed,
-        extract_start_timestamp(file_header),
-        add_timestamp,
+        data[[channels$time]],
+        extract_start_timestamp(header),
         zero_time
     )
-    data <- time_list$data
-    start_timestamp <- time_list$start_timestamp
+    data[[channels$time]] <- time_list$time
+    if (add_timestamp && !is.null(time_list$timestamp)) {
+        data <- tibble::add_column(
+            data,
+            timestamp = time_list$timestamp,
+            .after = channels$time
+        )
+    }
 
-    ## validate and estimate sample rate
-    ## will write new "time" column if Oxysoft export rate detected
-    ## return list(data_sampled, time_renamed, sample_rate)
-    sample_list <- parse_sample_rate(
-        data,
-        file_header,
-        time_renamed,
-        sample_rate,
-        nirs_device,
-        verbose
+    ## Oxysoft exports a sample index: derive a "time" column in seconds
+    ## from the export sample rate, placed in front of the sample column
+    if (identical(nirs_device, "Artinis")) {
+        sample_rate <- oxysoft_sample_rate(header)
+        time_new <- make.unique(c(names(data), "time"), sep = "_")[
+            ncol(data) + 1L
+        ]
+        data <- tibble::add_column(
+            data,
+            "{time_new}" := data[[channels$time]] / sample_rate,
+            .before = channels$time
+        )
+        channels$time <- time_new
+
+        if (verbose) {
+            cli_inform(c(
+                "!" = "Oxysoft {.arg sample_rate} = {.val {sample_rate}} Hz.",
+                "i" = "{.arg time_channel} = {.field {time_new}} added to \\
+                the data frame, in {.cls seconds}."
+            ))
+        }
+    }
+
+    ## validate or estimate sample rate; warn for irregular samples
+    sample_rate <- validate_sample_rate(
+        data, channels$time, sample_rate, verbose
     )
-    data <- sample_list$data
-    time_renamed <- sample_list$time_channel
-    sample_rate <- sample_list$sample_rate
-
-    ## print warnings for irregular samples
-    detect_irregular_samples(data[[time_renamed]], time_renamed, verbose)
+    detect_irregular_samples(data[[channels$time]], channels$time, verbose)
 
     ## assign metadata to attributes(data)
     metadata <- list(
         nirs_device = nirs_device,
-        nirs_channels = nirs_renamed,
-        time_channel = time_renamed,
-        event_channel = event_renamed,
+        nirs_channels = channels$nirs,
+        time_channel = channels$time,
+        event_channel = channels$event,
         sample_rate = sample_rate,
-        start_timestamp = start_timestamp,
+        start_timestamp = time_list$start_timestamp,
         verbose = verbose
     )
 
@@ -269,9 +299,14 @@ mnirs_metadata <- c(
 #'   - interval_times
 #'   - interval_span
 #'
+#'   `nirs_channels`, `time_channel`, and `event_channel` accept named
+#'   character vectors in the same form as `read_mnirs()`;
+#'   `c(renamed = "original_name")`. Existing column names can be renamed,
+#'   and the new names specified as `*_channel` in metadata.
+#'
 #' @details
-#' Typically will only be called internally, but can be used to inject
-#'   *{mnirs}* metadata into any data frame.
+#' Intended primarily for internal use, but can be used to inject *{mnirs}*
+#'   metadata into any data frame.
 #'
 #' @returns
 #' A [tibble][tibble::tibble-package] of class `"mnirs"`. Metadata are stored
@@ -296,6 +331,13 @@ mnirs_metadata <- c(
 #'
 #' attributes(nirs_data)
 #'
+#' ## rename channels and update metadata
+#' create_mnirs_data(
+#'     nirs_data,
+#'     nirs_channels = c(smo2 = "B", thb = "C"),
+#'     time_channel = c(time = "A")
+#' )
+#'
 #' @export
 create_mnirs_data <- function(data, ...) {
     validate_mnirs_data(data, 1L)
@@ -318,6 +360,31 @@ create_mnirs_data <- function(data, ...) {
     } else {
         args
     }
+
+    ## rename columns from `c(new = "original")` channel mappings;
+    ## metadata store the new names, channel names win any clash
+    roles <- intersect(
+        c("nirs_channels", "time_channel", "event_channel"),
+        names(incoming_metadata)
+    )
+    map <- name_channels(
+        unlist(unname(incoming_metadata[roles])) %||% character()
+    )
+    idx <- match(map, names(data))
+    if (anyNA(idx[names(map) != map])) {
+        cli_abort(c(
+            "x" = "Channel names not detected.",
+            "i" = "Column names are case sensitive and must match exactly."
+        ))
+    }
+    found <- !is.na(idx)
+    names(data) <- rename_duplicates(c(names(map)[found], names(data)))[
+        sum(found) + seq_along(data)
+    ]
+    names(data)[idx[found]] <- names(map)[found]
+    incoming_metadata[roles] <- lapply(incoming_metadata[roles], \(.x) {
+        unname(names(name_channels(.x)))
+    })
 
     metadata <- utils::modifyList(attributes(data), incoming_metadata)
 

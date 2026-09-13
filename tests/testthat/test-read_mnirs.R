@@ -127,6 +127,22 @@ test_that("read_file() reads vo2master files correctly", {
     expect_all_true(unlist(lapply(result, is.character)))
 })
 
+test_that("read_file() reads pionirs .ftn2 and .ftn files correctly", {
+    ftn2_path <- test_path("testdata/pionirs_occlusion.ftn2")
+    skip_if_not(file.exists(ftn2_path), "testdata not available")
+    result <- read_file(ftn2_path)
+
+    expect_s3_class(result, "data.frame")
+    expect_equal(dim(result), c(701L, 26L))
+    expect_equal(result[1, 1], "Iteration")
+    expect_all_true(unlist(lapply(result, is.character)))
+
+    result <- read_file(example_mnirs("pionirs"))
+
+    expect_equal(dim(result), c(701L, 15L))
+    expect_equal(result[1, 15], "TagLabel")
+})
+
 test_that("read_file() errors", {
     expect_error(
         read_file("nonexistent_file.xlsx"),
@@ -234,6 +250,26 @@ test_that("detect_mnirs_device works on internal example files", {
     )
 })
 
+test_that("detect_mnirs_device works on pionirs files", {
+    ftn2_path <- test_path("testdata/pionirs_occlusion.ftn2")
+    skip_if_not(file.exists(ftn2_path), "testdata not available")
+
+    expect_equal(
+        read_file(ftn2_path) |>
+            detect_mnirs_device(),
+        list(nirs_device = "PIONIRS", header_row = 1L)
+    )
+
+    file_path <- example_mnirs("pionirs")
+    skip_if_not(file.exists(file_path), "testdata not available")
+
+    expect_equal(
+        read_file(file_path) |>
+            detect_mnirs_device(),
+        list(nirs_device = "PIONIRS", header_row = 1L)
+    )
+})
+
 test_that("detect_mnirs_device() returns NULL when no match", {
     data <- data.frame(
         V1 = c("Unknown", "device", "data"),
@@ -273,53 +309,96 @@ test_that("detect_mnirs_device() requires 'oxysoft' for Artinis match", {
 })
 
 
-## detect_device_channels() ============================================
-test_that("detect_device_channels() returns user channels when provided", {
-    result <- detect_device_channels(
-        nirs_device = "Moxy",
-        nirs_channels = c(smo2 = "SmO2 Live"),
-        time_channel = c(time = "hh:mm:ss"),
+## resolve_channels() ==================================================
+## helpers: device list as from detect_mnirs_device(); user list as in read_mnirs()
+test_device <- function(nirs_device = NULL, header_row = 1L) {
+    list(nirs_device = nirs_device, header_row = header_row)
+}
+test_user <- function(nirs = NULL, time = NULL, event = NULL) {
+    lapply(list(time = time, event = event, nirs = nirs), name_channels)
+}
+
+test_that("resolve_channels() returns user channels when provided", {
+    raw <- data.frame(
+        V1 = c("hh:mm:ss", "00:00:01"),
+        V2 = c("SmO2 Live", "55"),
+        stringsAsFactors = FALSE
+    )
+
+    result <- resolve_channels(
+        raw,
+        test_device("Moxy"),
+        test_user(nirs = c(smo2 = "SmO2 Live"), time = c(time = "hh:mm:ss")),
         verbose = FALSE
     )
 
-    expect_equal(result$nirs_channels, c(smo2 = "SmO2 Live"))
-    expect_equal(result$time_channel, c(time = "hh:mm:ss"))
-})
+    expect_named(result, c("time", "extra", "event", "labels", "nirs"))
+    expect_equal(result$nirs, c(smo2 = "SmO2 Live"))
+    expect_equal(result$time, c(time = "hh:mm:ss"))
+    expect_null(result$event)
+    expect_null(result$extra)
+    expect_null(result$labels)
 
-test_that("detect_device_channels() returns user channels even with NULL device", {
-    result <- detect_device_channels(
-        nirs_device = NULL,
-        nirs_channels = "O2Hb",
-        time_channel = "Time",
+    ## NULL device
+    result <- resolve_channels(
+        raw,
+        test_device(NULL),
+        test_user(nirs = "O2Hb", time = "Time"),
         verbose = FALSE
     )
 
-    expect_equal(result$nirs_channels, "O2Hb")
-    expect_equal(result$time_channel, "Time")
+    expect_equal(result$nirs, c(O2Hb = "O2Hb"))
+    expect_equal(result$time, c(Time = "Time"))
 })
 
-test_that("detect_device_channels() detects known channels for device", {
-    data <- data.frame(
+test_that("resolve_channels() applies device default time with user nirs", {
+    raw <- data.frame(
+        V1 = c("hh:mm:ss", "00:00:01"),
+        V2 = c("SmO2 Live", "55"),
+        stringsAsFactors = FALSE
+    )
+
+    result <- resolve_channels(
+        raw,
+        test_device("Moxy"),
+        test_user(nirs = c(smo2 = "SmO2 Live")),
+        verbose = FALSE
+    )
+
+    expect_equal(result$time, name_channels(device_patterns$Moxy$time_channel))
+
+    ## user time_channel overrides device default
+    result <- resolve_channels(
+        raw,
+        test_device("Moxy"),
+        test_user(time = c(time = "custom_time")),
+        verbose = FALSE
+    )
+
+    expect_equal(result$nirs, name_channels("SmO2 Live"))
+    expect_equal(result$time, c(time = "custom_time"))
+})
+
+test_that("resolve_channels() detects known channels for device", {
+    raw <- data.frame(
         V1 = c("meta", "hh:mm:ss", "00:00:01"),
         V2 = c("meta", "SmO2 Live", "55"),
         stringsAsFactors = FALSE
     )
 
-    result <- detect_device_channels(
-        data,
-        header_row = 2L,
-        nirs_device = "Moxy",
-        nirs_channels = NULL,
-        time_channel = NULL,
+    result <- resolve_channels(
+        raw,
+        test_device("Moxy", 2L),
+        test_user(),
         verbose = FALSE
     )
 
-    expect_equal(result$nirs_channels, "SmO2 Live")
-    expect_equal(result$time_channel, device_patterns$Moxy$time_channel)
+    expect_equal(result$nirs, name_channels("SmO2 Live"))
+    expect_equal(result$time, name_channels(device_patterns$Moxy$time_channel))
 })
 
-test_that("detect_device_channels() detects multiple SmO2 channels", {
-    data <- data.frame(
+test_that("resolve_channels() detects multiple SmO2 channels", {
+    raw <- data.frame(
         V1 = c("Time", "0.1"),
         V2 = c("SmO2 (1)", "55"),
         V3 = c("SmO2 (2)", "60"),
@@ -327,122 +406,212 @@ test_that("detect_device_channels() detects multiple SmO2 channels", {
         stringsAsFactors = FALSE
     )
 
-    result <- detect_device_channels(
-        data,
-        header_row = 1L,
-        nirs_device = "PerfPro",
-        nirs_channels = NULL,
-        verbose = FALSE
+    result <- resolve_channels(
+        raw, test_device("PerfPro"), test_user(), verbose = FALSE
     )
 
-    expect_equal(result$nirs_channels, c("SmO2 (1)", "SmO2 (2)"))
+    expect_equal(result$nirs, name_channels(c("SmO2 (1)", "SmO2 (2)")))
 })
 
-test_that("detect_device_channels() matches SmO2 case-insensitively", {
-    data <- data.frame(
+test_that("resolve_channels() matches SmO2 case-insensitively", {
+    raw <- data.frame(
         V1 = c("Time", "0.1"),
         V2 = c("smo2 raw", "55"),
         V3 = c("SMO2_LIVE", "60"),
         stringsAsFactors = FALSE
     )
 
-    result <- detect_device_channels(
-        data,
-        header_row = 1L,
-        nirs_device = "Moxy",
-        nirs_channels = NULL,
-        verbose = FALSE
+    result <- resolve_channels(
+        raw, test_device("Moxy"), test_user(), verbose = FALSE
     )
 
-    expect_equal(result$nirs_channels, c("smo2 raw", "SMO2_LIVE"))
+    expect_equal(result$nirs, name_channels(c("smo2 raw", "SMO2_LIVE")))
 })
 
-test_that("detect_device_channels() returns '2' for Artinis without scanning", {
-    ## Artinis uses numeric channel id — no SmO2 column needed in data
-    data <- data.frame(
+test_that("resolve_channels() drops redundant unfiltered/Averaged SmO2", {
+    raw <- data.frame(
+        V1 = c("Time", "0.1"),
+        V2 = c("SmO2", "55"),
+        V3 = c("SmO2 unfiltered", "60"),
+        V4 = c("SmO2 Averaged", "60"),
+        V5 = c("Lap/Event", "1"),
+        stringsAsFactors = FALSE
+    )
+
+    result <- resolve_channels(
+        raw, test_device("Train.Red"), test_user(), verbose = FALSE
+    )
+
+    expect_equal(result$nirs, name_channels("SmO2"))
+    expect_equal(result$event, name_channels("Lap/Event"))
+
+    ## device event default dropped when absent from header
+    expect_null(resolve_channels(
+        raw[-5L], test_device("Train.Red"), test_user(), verbose = FALSE
+    )$event)
+})
+
+test_that("resolve_channels() parses Artinis legend block", {
+    ## Artinis names channels in the legend block, not the header row
+    raw <- data.frame(
+        V1 = c("OxySoft export of", "Legend", "Column", "1", "2", "3", "4", NA, "1"),
+        V2 = c(NA, NA, "Trace (Measurement)", "(Sample number)",
+               "VL O2Hb", "VL HHb", "(Event)", NA, "2"),
+        V3 = c(rep(NA, 8), "3"),
+        V4 = c(rep(NA, 8), "4"),
+        V5 = NA_character_,
+        stringsAsFactors = FALSE
+    )
+    device <- test_device("Artinis", 9L)
+
+    result <- resolve_channels(raw, device, test_user(), verbose = FALSE)
+
+    expect_equal(result$nirs, c(vl_o2hb = "2", vl_hhb = "3"))
+    expect_equal(result$time, c(sample = "1"))
+    expect_equal(result$event, c(event = "4"))
+    ## unnumbered trailing "labels" column only with keep_all
+    expect_null(result$labels)
+
+    result <- resolve_channels(
+        raw, device, test_user(), keep_all = TRUE, verbose = FALSE
+    )
+    expect_equal(result$labels, c(labels = "col_5"))
+
+    ## user event does not affect `labels`
+    result <- resolve_channels(
+        raw, device, test_user(event = c(ev = "4")), keep_all = TRUE,
+        verbose = FALSE
+    )
+    expect_equal(result$event, c(ev = "4"))
+    expect_equal(result$labels, c(labels = "col_5"))
+
+    ## legend entries for user-claimed columns are dropped
+    result <- resolve_channels(
+        raw, device, test_user(time = c(t = "4")), verbose = FALSE
+    )
+    expect_equal(result$time, c(t = "4"))
+    expect_null(result$event)
+
+    ## `event_channel = "labels"` aliases the unnumbered label column
+    result <- resolve_channels(
+        raw, device, test_user(event = c(event = "labels")), keep_all = TRUE,
+        verbose = FALSE
+    )
+    expect_equal(result$event, c(event = "col_5"))
+    expect_null(result$labels)
+
+    ## legend names (cleaned or raw trace) resolve to column ids
+    result <- resolve_channels(
+        raw, device, test_user(nirs = c(o2hb = "vl_o2hb")), verbose = FALSE
+    )
+    expect_equal(result$nirs, c(o2hb = "2"))
+
+    result <- resolve_channels(
+        raw, device,
+        test_user(time = c(t = "sample"), nirs = c(o2hb = "VL O2Hb")),
+        verbose = FALSE
+    )
+    expect_equal(result$time, c(t = "1"))
+    expect_equal(result$nirs, c(o2hb = "2"))
+})
+
+test_that("resolve_channels() Artinis falls back without legend", {
+    raw <- data.frame(
         V1 = c("1", "2", "3"),
         V2 = c("4", "5", "6"),
         stringsAsFactors = FALSE
     )
+    device <- test_device("Artinis", 2L)
 
-    result <- detect_device_channels(
-        data,
-        header_row = 2L,
-        nirs_device = "Artinis",
-        nirs_channels = NULL,
-        verbose = FALSE
+    ## no legend: time defaults to sample = "1", nirs cannot be resolved
+    expect_error(
+        resolve_channels(raw, device, test_user(), verbose = FALSE),
+        "cannot be determined"
     )
 
-    expect_equal(result$nirs_channels, "2")
-    expect_null(result$time_channel)
+    result <- resolve_channels(
+        raw, device, test_user(nirs = c(O2Hb = 2)), verbose = FALSE
+    )
+
+    expect_equal(result$nirs, c(O2Hb = "2"))
+    expect_equal(result$time, c(sample = "1"))
 })
 
-test_that("detect_device_channels() detects SmO2 for unknown device", {
-    data <- data.frame(
+test_that("resolve_channels() detects SmO2 for unknown device", {
+    raw <- data.frame(
         V1 = c("Time", "0.1"),
         V2 = c("SmO2", "55"),
         stringsAsFactors = FALSE
     )
 
-    result <- detect_device_channels(
-        data,
-        header_row = 1L,
-        nirs_device = NULL,
-        nirs_channels = NULL,
-        verbose = FALSE
+    result <- resolve_channels(
+        raw, test_device(NULL), test_user(), verbose = FALSE
     )
 
-    expect_equal(result$nirs_channels, "SmO2")
-    expect_null(result$time_channel)
+    expect_equal(result$nirs, name_channels("SmO2"))
+    expect_null(result$time)
 })
 
-test_that("detect_device_channels() detects known channels for PerfPro", {
+test_that("resolve_channels() detects known channels for PerfPro", {
     file_path <- test_path("testdata/perfpro-mre.xlsx")
     skip_if_not(file.exists(file_path), "testdata not available")
 
-    data <- read_file(file_path)
-    detected_list <- detect_mnirs_device(data)
-    nirs_device <- detected_list$nirs_device
-    header_row <- detected_list$header_row
+    raw <- read_file(file_path)
+    device <- detect_mnirs_device(raw)
 
-    expect_match(nirs_device, "PerfPro")
-    expect_equal(header_row, 3)
+    expect_match(device$nirs_device, "PerfPro")
+    expect_equal(device$header_row, 3)
 
-    result <- detect_device_channels(
-        data,
-        header_row,
-        nirs_device,
-        nirs_channels = NULL,
-        time_channel = NULL,
-        verbose = FALSE
-    )
+    result <- resolve_channels(raw, device, test_user(), verbose = FALSE)
 
-    expect_equal(result$nirs_channels, c("SmO2 (1614)", "SmO2 (1615)"))
-    expect_equal(result$time_channel, "Time")
+    expect_equal(result$nirs, name_channels(c("SmO2 (1614)", "SmO2 (1615)")))
+    expect_equal(result$time, name_channels("Time"))
 })
 
-test_that("detect_device_channels() user time_channel overrides device default", {
-    data <- data.frame(
-        V1 = c("hh:mm:ss", "00:00:01"),
-        V2 = c("SmO2 Live", "55"),
+test_that("resolve_channels() detects known channels for PIONIRS", {
+    ftn2_path <- test_path("testdata/pionirs_occlusion.ftn2")
+    skip_if_not(file.exists(ftn2_path), "testdata not available")
+
+    raw <- read_file(ftn2_path)
+    device <- detect_mnirs_device(raw)
+
+    result <- resolve_channels(raw, device, test_user(), verbose = FALSE)
+
+    expect_equal(result$nirs, name_channels(c("StO2(CH1)", "StO2(CH2)")))
+    expect_equal(result$time, name_channels("Time"))
+    expect_equal(result$event, name_channels("TagLabel"))
+    ## companion columns only with keep_all
+    expect_null(result$extra)
+
+    result <- resolve_channels(
+        raw, device, test_user(), keep_all = TRUE, verbose = FALSE
+    )
+    expect_equal(result$extra, name_channels(c("Iteration", "Tag")))
+
+    ## user-claimed companion column dropped from extra
+    result <- resolve_channels(
+        raw, device, test_user(nirs = "Iteration"), keep_all = TRUE,
+        verbose = FALSE
+    )
+    expect_equal(result$extra, name_channels("Tag"))
+})
+
+test_that("resolve_channels() detects StO2 case-insensitively for unknown device", {
+    raw <- data.frame(
+        V1 = c("Time", "0.1"),
+        V2 = c("sto2 left", "65"),
         stringsAsFactors = FALSE
     )
 
-    result <- detect_device_channels(
-        data,
-        header_row = 1L,
-        nirs_device = "Moxy",
-        nirs_channels = NULL,
-        time_channel = c(time = "custom_time"),
-        verbose = FALSE
+    result <- resolve_channels(
+        raw, test_device(NULL), test_user(), verbose = FALSE
     )
 
-    expect_equal(result$nirs_channels, "SmO2 Live")
-    expect_equal(result$time_channel, c(time = "custom_time"))
+    expect_equal(result$nirs, name_channels("sto2 left"))
 })
 
-test_that("detect_device_channels() errors when no SmO2 columns found", {
-    data <- data.frame(
+test_that("resolve_channels() errors when no SmO2 columns found", {
+    raw <- data.frame(
         V1 = c("Time", "0.1"),
         V2 = c("HR", "120"),
         stringsAsFactors = FALSE
@@ -450,201 +619,195 @@ test_that("detect_device_channels() errors when no SmO2 columns found", {
 
     ## NULL device + no SmO2 columns
     expect_error(
-        detect_device_channels(
-            data,
-            header_row = 1L,
-            nirs_device = NULL,
-            nirs_channels = NULL,
-            verbose = FALSE
-        ),
+        resolve_channels(raw, test_device(NULL), test_user(), verbose = FALSE),
         "cannot be determined"
     )
 
     ## known device + no SmO2 columns
     expect_error(
-        detect_device_channels(
-            data,
-            header_row = 1L,
-            nirs_device = "Moxy",
-            nirs_channels = NULL,
-            verbose = FALSE
-        ),
+        resolve_channels(raw, test_device("Moxy"), test_user(), verbose = FALSE),
         "cannot be determined"
     )
 })
 
-test_that("detect_device_channels() verbose messages for detection", {
-    data <- data.frame(
+test_that("resolve_channels() verbose messages for detection", {
+    raw <- data.frame(
         V1 = c("hh:mm:ss", "00:00:01"),
         V2 = c("SmO2 Live", "55"),
         stringsAsFactors = FALSE
     )
 
     expect_message(
-        detect_device_channels(
-            data,
-            header_row = 1L,
-            nirs_device = "Moxy",
-            nirs_channels = NULL,
-            verbose = TRUE
-        ),
+        resolve_channels(raw, test_device("Moxy"), test_user(), verbose = TRUE),
         "Moxy.*detected"
     )
 
     ## unknown device labelled "Unknown"
     expect_message(
-        detect_device_channels(
-            data,
-            header_row = 1L,
-            nirs_device = NULL,
-            nirs_channels = NULL,
-            verbose = TRUE
-        ),
+        resolve_channels(raw, test_device(NULL), test_user(), verbose = TRUE),
         "Unknown.*detected"
     )
 
     ## no message when user provides channels
     expect_no_message(
-        detect_device_channels(
-            nirs_device = "Moxy",
-            nirs_channels = c("SmO2 Live"),
+        resolve_channels(
+            raw, test_device("Moxy"), test_user(nirs = "SmO2 Live"),
             verbose = TRUE
         )
     )
 })
 
-test_that("detect_device_channels() returns appropriate keep_all", {
+
+## parse_oxysoft_legend() ==============================================
+test_that("clean_channel_names() collapses non-alphanumerics and lowercases", {
+    expect_equal(clean_channel_names("VL O2Hb"), "vl_o2hb")
+    expect_equal(clean_channel_names("Rx1 - Tx1 tHb"), "rx1_tx1_thb")
+    expect_equal(clean_channel_names("(TSI)"), "tsi")
+    expect_equal(clean_channel_names("  a  b  "), "a_b")
+    expect_equal(clean_channel_names("***"), "")
+})
+
+test_that("parse_oxysoft_legend() parses full legend with labels column", {
     data <- data.frame(
-        V1 = c("hh:mm:ss", "00:00:01"),
-        V2 = c("SmO2 Live", "55"),
+        V1 = c("Legend", "Column", "1", "2", "3", "4", "5", NA, "1"),
+        V2 = c(NA, "Trace (Measurement)", "(Sample number)", "Rx1 - Tx1 tHb",
+               "Rx1 - Tx1 O2Hb", "(TSI)", "(Event)", NA, "2"),
+        V3 = c(rep(NA, 8), "3"),
+        V4 = c(rep(NA, 8), "4"),
+        V5 = c(rep(NA, 8), "5"),
+        V6 = NA_character_,
         stringsAsFactors = FALSE
     )
 
-    result <- detect_device_channels(
-        data,
-        header_row = 1L,
-        nirs_device = "Moxy",
-        nirs_channels = NULL,
-        time_channel = c(time = "custom_time"),
-        verbose = FALSE
+    result <- parse_oxysoft_legend(data, header_row = 9L)
+
+    expect_named(
+        result, c("time", "extra", "event", "labels", "nirs", "alias")
+    )
+    expect_equal(result$time, c(sample = "1"))
+    expect_equal(
+        result$alias,
+        c("(Sample number)" = "1", "Rx1 - Tx1 tHb" = "2",
+          "Rx1 - Tx1 O2Hb" = "3", "(TSI)" = "4", "(Event)" = "5")
+    )
+    expect_equal(
+        result$nirs,
+        c(rx1_tx1_thb = "2", rx1_tx1_o2hb = "3")
+    )
+    expect_equal(result$event, c(event = "5"))
+    ## unknown parenthesised trace kept, unnumbered trailing col -> labels
+    expect_equal(result$extra, c(tsi = "4"))
+    expect_equal(result$labels, c(labels = "col_6"))
+})
+
+test_that("parse_oxysoft_legend() omits labels without trailing column", {
+    data <- data.frame(
+        V1 = c("Legend", "Column", "1", "2", "3", NA, "1"),
+        V2 = c(NA, "Trace (Measurement)", "(Sample number)", "O2Hb",
+               "(Event)", NA, "2"),
+        V3 = c(rep(NA, 6), "3"),
+        stringsAsFactors = FALSE
     )
 
-    expect_true(result$keep_all)
+    result <- parse_oxysoft_legend(data, header_row = 7L)
 
-    result <- detect_device_channels(
-        nirs_device = "Moxy",
-        nirs_channels = "SmO2",
-        time_channel = c(time = "custom_time"),
-        verbose = FALSE
+    expect_equal(result$nirs, c(o2hb = "2"))
+    expect_equal(result$event, c(event = "3"))
+    expect_null(result$extra)
+    expect_null(result$labels)
+})
+
+test_that("parse_oxysoft_legend() returns NULL when legend missing or malformed", {
+    ## no legend row
+    data <- data.frame(
+        V1 = c("meta", "1"),
+        V2 = c("meta", "2"),
+        stringsAsFactors = FALSE
     )
+    expect_null(parse_oxysoft_legend(data, header_row = 2L))
 
-    expect_false(result$keep_all)
+    ## empty trace name
+    data <- data.frame(
+        V1 = c("Legend", "Column", "1", "2", "1"),
+        V2 = c(NA, "Trace (Measurement)", "(Sample number)", NA, "2"),
+        stringsAsFactors = FALSE
+    )
+    expect_null(parse_oxysoft_legend(data, header_row = 5L))
+
+    ## legend ids not present in the header row
+    data <- data.frame(
+        V1 = c("Legend", "Column", "1", "2", "A"),
+        V2 = c(NA, "Trace (Measurement)", "(Sample number)", "O2Hb", "B"),
+        stringsAsFactors = FALSE
+    )
+    expect_null(parse_oxysoft_legend(data, header_row = 5L))
 })
 
 
-## read_data_table() ===================================================
-test_that("read_data_table() extracts data with valid channels", {
-    data <- data.frame(
+## find_header_row() ===================================================
+test_that("find_header_row() finds the row containing all channels", {
+    raw <- data.frame(
         V1 = c("meta1", "meta2", "O2Hb", "10", "20"),
         V2 = c("meta1", "meta2", "HHb", "5", "15"),
         V3 = c("meta1", "meta2", "Time", "0.1", "0.2"),
         stringsAsFactors = FALSE
     )
 
-    result <- read_data_table(data, nirs_channels = c("O2Hb", "HHb"))
-
-    expect_type(result, "list")
-    expect_named(result, c("file_header", "data_table"))
-    expect_s3_class(result$data_table, "data.frame")
-    expect_s3_class(result$file_header, "data.frame")
-
-    expect_equal(nrow(result$data_table), 2)
-    expect_equal(ncol(result$data_table), 3)
-    expect_equal(names(result$data_table), c("O2Hb", "HHb", "Time"))
-    expect_true(all(result$data_table == data[4:5, ]))
-
-    expect_equal(nrow(result$file_header), 3)
-    expect_equal(ncol(result$file_header), 3)
-    expect_true(all(result$file_header == data[1:3, ]))
+    expect_equal(find_header_row(raw, c("O2Hb", "HHb")), 3L)
+    ## `start` row tried first
+    expect_equal(find_header_row(raw, c("O2Hb", "HHb"), start = 3L), 3L)
+    ## numeric channel ids coerced to character
+    expect_equal(find_header_row(raw, c(oxy = "O2Hb"), start = 1L), 3L)
 })
 
-test_that("read_data_table() errors when channels not found", {
-    data <- data.frame(
+test_that("find_header_row() matches renamed duplicate headers", {
+    raw <- data.frame(
+        V1 = c("meta", "SmO2", "10"),
+        V2 = c("meta", "SmO2", "5"),
+        V3 = c("meta", "Time", "0.1"),
+        stringsAsFactors = FALSE
+    )
+
+    expect_equal(find_header_row(raw, c(left = "SmO2", right = "SmO2_1")), 2L)
+})
+
+test_that("find_header_row() errors when channels not found", {
+    raw <- data.frame(
         V1 = c("header", "WrongChannel", "10"),
         V2 = c("header", "Time", "0.1"),
         stringsAsFactors = FALSE
     )
 
-    expect_error(
-        read_data_table(data, nirs_channels = "O2Hb"),
-        "Channel names not detected"
-    )
+    expect_error(find_header_row(raw, "O2Hb"), "Channel names not detected")
 })
 
-test_that("read_data_table() is case sensitive", {
-    data <- data.frame(
+test_that("find_header_row() is case sensitive", {
+    raw <- data.frame(
         V1 = c("meta", "o2hb", "10"),
         V2 = c("meta", "time", "0.1"),
         stringsAsFactors = FALSE
     )
 
-    expect_error(
-        read_data_table(data, nirs_channels = "O2Hb"),
-        "case sensitive"
-    )
+    expect_error(find_header_row(raw, "O2Hb"), "case sensitive")
 })
 
 
 ## detect_time_channel() ==============================================
-test_that("detect_time_channel returns provided time_channel", {
-    df <- data.frame(x = 1:5, y = 6:10)
-    expect_equal(
-        detect_time_channel(df, time_channel = "custom", verbose = FALSE),
-        "custom"
-    )
-})
-
 test_that("detect_time_channel finds time column by name", {
     df <- data.frame(time = 1:5, value = 6:10)
-    expect_equal(
-        detect_time_channel(df, verbose = FALSE),
-        "time"
-    )
+    expect_equal(detect_time_channel(df, verbose = FALSE), "time")
 
     df <- data.frame(Time = 1:5, value = 6:10)
-    expect_equal(
-        detect_time_channel(df, verbose = FALSE),
-        "Time"
-    )
+    expect_equal(detect_time_channel(df, verbose = FALSE), "Time")
 
     df <- tibble("hh:mm:ss" = 1:5, value = 6:10)
-    expect_equal(
-        detect_time_channel(df, verbose = FALSE),
-        "hh:mm:ss"
-    )
+    expect_equal(detect_time_channel(df, verbose = FALSE), "hh:mm:ss")
 
     df <- data.frame("hms" = 1:5, value = 6:10)
-    expect_equal(
-        detect_time_channel(df, verbose = FALSE),
-        "hms"
-    )
+    expect_equal(detect_time_channel(df, verbose = FALSE), "hms")
 
     df <- data.frame(duration = 1:5, value = 6:10)
-    expect_equal(
-        detect_time_channel(df, verbose = FALSE),
-        "duration"
-    )
-})
-
-test_that("detect_time_channel finds POSIXct column", {
-    df <- data.frame(
-        value = 1:5,
-        posixct_col = as.POSIXct("2024-01-01 12:00:00") + 1:5
-    )
-    expect_equal(
-        detect_time_channel(df, verbose = FALSE),
-        "posixct_col"
-    )
+    expect_equal(detect_time_channel(df, verbose = FALSE), "duration")
 })
 
 test_that("detect_time_channel finds character time format", {
@@ -658,31 +821,22 @@ test_that("detect_time_channel finds character time format", {
             "12:30:49"
         )
     )
-    expect_equal(
-        detect_time_channel(df, verbose = FALSE),
-        "string_col"
-    )
+    expect_equal(detect_time_channel(df, verbose = FALSE), "string_col")
 
     # Test with H:MM format
     df <- data.frame(
         value = 1:5,
         string_col = c("1:30", "1:31", "1:32", "1:33", "1:34")
     )
-    expect_equal(
-        detect_time_channel(df, verbose = FALSE),
-        "string_col"
-    )
+    expect_equal(detect_time_channel(df, verbose = FALSE), "string_col")
 })
 
-test_that("detect_time_channel handles NA values in character column", {
+test_that("detect_time_channel handles NA and empty values in character column", {
     df <- data.frame(
         value = 1:5,
-        time_str = c(NA, "12:30:45", "12:30:46", "12:30:47", "12:30:48")
+        time_str = c(NA, "", "12:30:46", "12:30:47", "12:30:48")
     )
-    expect_equal(
-        detect_time_channel(df, verbose = FALSE),
-        "time_str"
-    )
+    expect_equal(detect_time_channel(df, verbose = FALSE), "time_str")
 })
 
 test_that("detect_time_channel errors when no time column found", {
@@ -690,18 +844,6 @@ test_that("detect_time_channel errors when no time column found", {
     expect_error(
         detect_time_channel(df, verbose = FALSE),
         "time_channel.*not detected"
-    )
-})
-
-test_that("detect_time_channel prioritises time_channel argument", {
-    df <- data.frame(
-        time = 1:5,
-        custom = 6:10,
-        timestamp = as.POSIXct("2024-01-01 12:00:00") + 1:5
-    )
-    expect_equal(
-        detect_time_channel(df, time_channel = "custom", verbose = FALSE),
-        "custom"
     )
 })
 
@@ -795,217 +937,198 @@ test_that("name_channels() handles all empty names", {
     expect_equal(names(result), c("O2Hb", "HHb", "Time"))
 })
 
+test_that("name_channels() coerces numeric ids to character and passes NULL", {
+    expect_equal(name_channels(c(HHb = 2, 3)), c(HHb = "2", "3" = "3"))
+    expect_null(name_channels(NULL))
+})
 
-## select_rename_data() ===========================================
-test_that("select_rename_data() selects and renames channels in order", {
-    data <- data.frame(
-        O2Hb = c("10", "20"),
-        HHb = c("5", "15"),
-        Time = c("0.1", "0.2"),
-        stringsAsFactors = FALSE
-    )
 
-    result <- select_rename_data(
+## select_channels() ==================================================
+## helper: character data table with unique names as in read_mnirs()
+test_data <- function(...) {
+    data.frame(..., check.names = FALSE, stringsAsFactors = FALSE)
+}
+
+test_that("select_channels() keeps role order and returns new names", {
+    data <- test_data(O2Hb = "1", HHb = "2", Time = "0", Extra = "x")
+    result <- select_channels(
         data,
-        nirs_channels = c(oxy = "O2Hb", deoxy = "HHb"),
-        time_channel = c(time = "Time"),
+        list(time = c(time = "Time"), nirs = c(oxy = "O2Hb", deoxy = "HHb")),
         verbose = FALSE
     )
 
     expect_equal(names(result$data), c("time", "oxy", "deoxy"))
-    expect_equal(result$nirs_channel, c("oxy", "deoxy"))
-    expect_equal(result$time_channel, c("time"))
-})
+    expect_named(result$channels, c("time", "nirs"))
+    expect_equal(result$channels$time, "time")
+    expect_equal(result$channels$nirs, c("oxy", "deoxy"))
 
-test_that("select_rename_data() works with unnamed channels", {
-    data <- data.frame(
-        O2Hb = c("10"),
-        Time = c("0.1"),
-        stringsAsFactors = FALSE
-    )
-
-    result <- select_rename_data(
+    ## keep_all appends remaining columns; NULL roles dropped
+    result <- select_channels(
         data,
-        nirs_channels = "O2Hb",
-        time_channel = "Time",
+        list(time = c(Time = "Time"), event = NULL, nirs = c(O2Hb = "O2Hb")),
+        keep_all = TRUE,
         verbose = FALSE
     )
 
-    expect_equal(names(result$data), c("Time", "O2Hb"))
-    expect_equal(result$nirs_channel, "O2Hb")
-    expect_equal(result$time_channel, "Time")
+    expect_equal(names(result$data), c("Time", "O2Hb", "HHb", "Extra"))
+    expect_named(result$channels, c("time", "nirs"))
 })
 
-test_that("select_rename_data() includes event channel", {
-    data <- data.frame(
-        O2Hb = c("10"),
-        Time = c("0.1"),
-        Event = c("Start"),
-        stringsAsFactors = FALSE
-    )
-
-    result <- select_rename_data(
+test_that("select_channels() channel names win clashing data names", {
+    data <- test_data(O2Hb = "1", Time = "0", custom = "x")
+    result <- select_channels(
         data,
-        nirs_channels = "O2Hb",
-        time_channel = "Time",
-        event_channel = "Event",
+        list(time = c(Time = "Time"), nirs = c(custom = "O2Hb")),
+        keep_all = TRUE,
         verbose = FALSE
     )
 
-    expect_equal(names(result$data), c("Time", "Event", "O2Hb"))
-    expect_equal(result$event_channel, "Event")
+    expect_equal(names(result$data), c("Time", "custom", "custom_1"))
+    expect_equal(result$data$custom, "1")
 })
 
-test_that("select_rename_data() handles un-renamed duplicate channels", {
-    data <- data.frame(
-        O2Hb = c("10"),
-        O2Hb = c("10"),
-        Time = c("0.1"),
-        check.names = FALSE,
-        stringsAsFactors = FALSE
-    )
-
+test_that("select_channels() handles un-renamed duplicate channels", {
+    data <- test_data(O2Hb = "1", O2Hb_1 = "2", Time = "0")
     expect_warning(
-        result <- select_rename_data(
+        result <- select_channels(
             data,
-            nirs_channels = c("O2Hb", "O2Hb"),
-            time_channel = "Time",
+            list(time = c(Time = "Time"), nirs = c(O2Hb = "O2Hb", O2Hb = "O2Hb")),
             verbose = TRUE
         ),
         "Duplicate channel names"
     )
 
-    expect_equal(result$nirs_channel, c("O2Hb", "O2Hb_1"))
+    expect_equal(result$channels$nirs, c("O2Hb", "O2Hb_1"))
+    expect_equal(names(result$data), c("Time", "O2Hb", "O2Hb_1"))
 })
 
-test_that("select_rename_data() handles renamed duplicate data columns", {
-    data <- data.frame(
-        O2Hb = c("10"),
-        O2Hb = c("20"),
-        Time = c("0.1"),
-        check.names = FALSE,
-        stringsAsFactors = FALSE
-    )
-
-    result <- select_rename_data(
-        data,
-        nirs_channels = c(oxy1 = "O2Hb", oxy2 = "O2Hb"),
-        time_channel = "Time",
-        verbose = FALSE
-    )
-
-    expect_equal(names(result$data), c("Time", "oxy1", "oxy2"))
-})
-
-test_that("select_rename_data() keeps all columns with keep_all", {
-    data <- data.frame(
-        O2Hb = c("10"),
-        HHb = c("5"),
-        Time = c("0.1"),
-        Extra = c("x"),
-        stringsAsFactors = FALSE
-    )
-
-    result <- select_rename_data(
-        data,
-        nirs_channels = c(o2hb = "O2Hb", hhb = "HHb"),
-        time_channel = c(time = "Time"),
-        keep_all = TRUE,
-        verbose = FALSE
-    )
-
-    expect_equal(ncol(result$data), 4)
-    expect_true(all(
-        c("o2hb", "hhb", "time", "Extra") %in% names(result$data)
-    ))
-})
-
-test_that("select_rename_data() drops extra columns with default keep_all = FALSE", {
-    data <- data.frame(
-        O2Hb = c("10"),
-        HHb = c("5"),
-        Time = c("0.1"),
-        Extra = c("x"),
-        stringsAsFactors = FALSE
-    )
-
-    result <- select_rename_data(
-        data,
-        nirs_channels = "O2Hb",
-        time_channel = "Time",
-        # keep_all = FALSE,
-        verbose = FALSE
-    )
-
-    expect_equal(ncol(result$data), 2)
-    expect_false("Extra" %in% names(result$data))
-})
-
-test_that("select_rename_data() errors when channel not found", {
-    data <- data.frame(
-        O2Hb = c("10"),
-        Time = c("0.1"),
-        stringsAsFactors = FALSE
-    )
-
-    expect_error(
-        select_rename_data(
+test_that("select_channels() handles renamed duplicate data columns", {
+    data <- test_data(O2Hb = "1", O2Hb_1 = "2", Time = "0")
+    expect_no_warning(
+        result <- select_channels(
             data,
-            nirs_channels = "HHb",
-            time_channel = "Time"
+            list(time = c(Time = "Time"), nirs = c(oxy1 = "O2Hb", oxy2 = "O2Hb")),
+            verbose = TRUE
+        )
+    )
+
+    expect_equal(result$channels$nirs, c("oxy1", "oxy2"))
+    expect_equal(result$data$oxy2, "2")
+})
+
+test_that("select_channels() makes names unique across roles", {
+    data <- test_data(SmO2 = "1", Time = "0")
+    expect_warning(
+        result <- select_channels(
+            data,
+            list(time = c(smo2 = "Time"), nirs = c(smo2 = "SmO2")),
+            verbose = TRUE
+        ),
+        "smo2 = smo2_1"
+    )
+
+    expect_equal(result$channels$time, "smo2")
+    expect_equal(result$channels$nirs, "smo2_1")
+})
+
+test_that("select_channels() errors when channel not found", {
+    expect_error(
+        select_channels(
+            test_data(O2Hb = "1", Time = "0"),
+            list(time = c(Time = "Time"), nirs = c(HHb = "HHb"))
         ),
         "Channel names not detected"
     )
 })
 
-test_that("select_rename_data() suppresses warnings with verbose", {
-    data <- data.frame(
-        O2Hb = c("10"),
-        O2Hb = c("20"),
-        Time = c("0.1"),
-        check.names = FALSE,
-        stringsAsFactors = FALSE
-    )
-
+test_that("select_channels() suppresses warnings with verbose", {
     expect_silent(
-        select_rename_data(
-            data,
-            nirs_channels = c(o2hb = "O2Hb", o2hb = "O2Hb"),
-            time_channel = "Time",
+        select_channels(
+            test_data(O2Hb = "1", O2Hb_1 = "2", Time = "0"),
+            list(time = c(Time = "Time"), nirs = c(o2hb = "O2Hb", o2hb = "O2Hb")),
             verbose = FALSE
         )
     )
-
-    expect_warning(
-        select_rename_data(
-            data,
-            nirs_channels = c(o2hb = "O2Hb", o2hb = "O2Hb"),
-            time_channel = "Time",
-            verbose = TRUE
-        ),
-        "o2hb = o2hb_1"
-    )
 })
 
-test_that("select_rename_data() prioritises custom names over data", {
-    data <- data.frame(
-        O2Hb = c("10"),
-        Time = c("0.1"),
-        custom = c("x"),
-        stringsAsFactors = FALSE
+test_that("read_mnirs() selects, orders, and renames columns", {
+    file_path <- tempfile(fileext = ".csv")
+    on.exit(unlink(file_path))
+    writeLines(
+        c(
+            "O2Hb,HHb,Time,custom,Extra",
+            "10,5,0.1,x,a",
+            "20,15,0.2,y,b"
+        ),
+        file_path
     )
 
-    result <- select_rename_data(
-        data,
+    ## default keep_all = FALSE: time first, then nirs
+    df <- read_mnirs(
+        file_path,
+        nirs_channels = c(oxy = "O2Hb", deoxy = "HHb"),
+        time_channel = c(time = "Time"),
+        verbose = FALSE
+    )
+
+    expect_equal(names(df), c("time", "oxy", "deoxy"))
+    expect_equal(attr(df, "nirs_channels"), c("oxy", "deoxy"))
+    expect_equal(attr(df, "time_channel"), "time")
+
+    ## keep_all: custom names take priority over clashing data names
+    df <- read_mnirs(
+        file_path,
         nirs_channels = c(custom = "O2Hb"),
         time_channel = "Time",
         keep_all = TRUE,
         verbose = FALSE
     )
 
-    expect_true(all(c("custom", "custom_1") %in% names(result$data)))
-    expect_equal(result$data$custom, "10")
+    expect_equal(names(df), c("Time", "custom", "HHb", "custom_1", "Extra"))
+    expect_equal(df$custom, c(10, 20))
+    expect_equal(df$custom_1, c("x", "y"))
 })
+
+test_that("read_mnirs() reads pionirs .ftn2 file with auto-detection", {
+    ftn2_path <- test_path("testdata/pionirs_occlusion.ftn2")
+    skip_if_not(file.exists(ftn2_path), "testdata not available")
+
+    df <- read_mnirs(ftn2_path, verbose = TRUE)
+
+    expect_equal(attr(df, "nirs_device"), "PIONIRS")
+    expect_equal(attr(df, "nirs_channels"), c("StO2(CH1)", "StO2(CH2)"))
+    expect_equal(attr(df, "time_channel"), "Time")
+    expect_equal(attr(df, "event_channel"), "TagLabel")
+    expect_equal(attr(df, "sample_rate"), 1)
+    expect_equal(nrow(df), 700L)
+    expect_equal(
+        names(df)[1:6],
+        c("Time", "Iteration", "Tag", "TagLabel", "StO2(CH1)", "StO2(CH2)")
+    )
+    expect_true(is.numeric(df[["StO2(CH1)"]]))
+
+    ## "-" placeholders become NA, labels retained
+    expect_true(is.character(df$TagLabel))
+    expect_equal(sum(!is.na(df$TagLabel)), 3L)
+    expect_equal(df$TagLabel[12], "Baseline")
+
+    ## Iteration dropped when keep_all = FALSE; user channel order respected
+    df <- read_mnirs(
+        ftn2_path, nirs_channels = "StO2(CH1)", verbose = FALSE
+    )
+    expect_false("Iteration" %in% names(df))
+    df <- read_mnirs(
+        ftn2_path,
+        nirs_channels = c("Iteration", "StO2(CH1)"),
+        keep_all = TRUE,
+        verbose = FALSE
+    )
+    expect_equal(
+        names(df)[1:5],
+        c("Time", "Tag", "TagLabel", "Iteration", "StO2(CH1)")
+    )
+})
+
 
 ## convert_type() ================================================
 test_that("convert_type() applies unopinionated typing to data columns", {
@@ -1016,7 +1139,7 @@ test_that("convert_type() applies unopinionated typing to data columns", {
         x = c(10.5, 11.0, 11.5),      ## fractional -> double
     )
 
-    result <- convert_type(data, time_channel = "time", event_channel = "lap")
+    result <- convert_type(data, list(time = "time", event = "lap"))
 
     expect_type(result$time, "double")   ## time left unchanged
     expect_type(result$lap, "integer")
@@ -1034,7 +1157,7 @@ test_that("convert_type() standardises empty and 'NA' strings to NA", {
         stringsAsFactors = FALSE
     )
 
-    result <- convert_type(data, time_channel = "time")
+    result <- convert_type(data, list(time = "time"))
 
     expect_equal(result$A, c("a", NA_character_, "b"))
     expect_equal(result$B, c("x", NA_character_, "y"))
@@ -1047,7 +1170,7 @@ test_that("convert_type() standardises Inf/NaN to NA in numeric cols", {
         stringsAsFactors = FALSE
     )
 
-    result <- convert_type(data, time_channel = "time")
+    result <- convert_type(data, list(time = "time"))
 
     expect_type(result$A, "double")
     expect_equal(result$A, c(1.5, NA_real_, NA_real_, NA_real_))
@@ -1061,7 +1184,7 @@ test_that("convert_type() standardises non-finite integers to NA", {
         B = c("10", "20", "30"),
     )
 
-    result <- convert_type(data, time_channel = "time", event_channel = "lap")
+    result <- convert_type(data, list(time = "time", event = "lap"))
 
     expect_type(result$lap, "integer")
     expect_equal(result$lap, c(1L, NA_integer_, 2L))
@@ -1075,7 +1198,7 @@ test_that("convert_type() preserves valid numeric values", {
         stringsAsFactors = FALSE
     )
 
-    result <- convert_type(data, time_channel = "time")
+    result <- convert_type(data, list(time = "time"))
     expect_equal(result$A, c(0, 0))
 })
 
@@ -1087,7 +1210,7 @@ test_that("convert_type() forces nirs_channels to numeric", {
         label = c("Start", "Lap", "Stop")
     )
 
-    result <- convert_type(data, nirs_channels = "smo2", time_channel = "time")
+    result <- convert_type(data, list(time = "time", nirs = "smo2"))
 
     ## specified `nirs_channels` coerced to numeric
     expect_type(result$smo2, "double")
@@ -1111,8 +1234,7 @@ test_that("convert_type() warns per nirs channel coerced to all NA", {
     expect_warning(
         result <- convert_type(
             data,
-            nirs_channels = c("smo2", "hhb", "o2hb"),
-            time_channel = "time"
+            list(time = "time", nirs = c("smo2", "hhb", "o2hb"))
         ),
         "smo2"
     ) |> 
@@ -1129,7 +1251,7 @@ test_that("convert_type() all-NA warning respects verbose = FALSE", {
 
     expect_no_warning(
         convert_type(
-            data, nirs_channels = "smo2", time_channel = "time", verbose = FALSE
+            data, list(time = "time", nirs = "smo2"), verbose = FALSE
         )
     )
 })
@@ -1289,57 +1411,40 @@ test_that("extract_start_timestamp() works with real example file header", {
 
 
 ## parse_time_channel() ================================================
-test_that("parse_time_channel() returns a list with $data and $start_timestamp", {
-    data <- data.frame(time = c(0, 1, 2), value = c(1, 2, 3))
-    result <- parse_time_channel(data, "time")
+test_that("parse_time_channel() returns a list of time, timestamp, start_timestamp", {
+    result <- parse_time_channel(c(0, 1, 2))
 
     expect_type(result, "list")
-    expect_named(result, c("data", "start_timestamp"))
-    expect_s3_class(result$data, "data.frame")
+    expect_named(result, c("time", "timestamp", "start_timestamp"))
+    expect_type(result$time, "double")
 })
 
 test_that("parse_time_channel() coerces numeric-string time to numeric", {
-    data <- data.frame(time = c("0", "1", "2"), stringsAsFactors = FALSE)
-    result <- parse_time_channel(data, "time")
+    result <- parse_time_channel(c("0", "1", "2"))
 
-    expect_type(result$data$time, "double")
-    expect_equal(result$data$time, c(0, 1, 2))
+    expect_type(result$time, "double")
+    expect_equal(result$time, c(0, 1, 2))
 })
 
 test_that("parse_time_channel() preserves numeric time (zero_time = FALSE)", {
-    data <- data.frame(
-        time = c(10.5, 20.5, 30.5),
-        value = c(1, 2, 3)
-    )
+    result <- parse_time_channel(c(10.5, 20.5, 30.5), zero_time = FALSE)
 
-    result <- parse_time_channel(data, "time", zero_time = FALSE)
-
-    expect_equal(result$data$time, data$time)
+    expect_equal(result$time, c(10.5, 20.5, 30.5))
+    expect_null(result$timestamp)
     expect_null(result$start_timestamp)
 })
 
 test_that("parse_time_channel() recalculates numeric time from zero", {
-    data <- data.frame(
-        time = c(10, 20, 30),
-        value = c(1, 2, 3)
-    )
+    result <- parse_time_channel(c(10, 20, 30), zero_time = TRUE)
 
-    result <- parse_time_channel(data, "time", zero_time = TRUE)
-
-    expect_equal(result$data$time, c(0, 10, 20))
+    expect_equal(result$time, c(0, 10, 20))
 })
 
 test_that("parse_time_channel() parses ISO 8601 character timestamps to numeric", {
-    data <- data.frame(
-        time = c("2025-01-01T10:00:00", "2025-01-01T10:00:01"),
-        value = c(1, 2),
-        stringsAsFactors = FALSE
-    )
+    result <- parse_time_channel(c("2025-01-01T10:00:00", "2025-01-01T10:00:01"))
 
-    result <- parse_time_channel(data, "time")
-
-    expect_type(result$data$time, "double")
-    expect_equal(result$data$time, c(0, 1))
+    expect_type(result$time, "double")
+    expect_equal(result$time, c(0, 1))
 })
 
 test_that("parse_time_channel() parses date-time formats to numeric", {
@@ -1351,102 +1456,62 @@ test_that("parse_time_channel() parses date-time formats to numeric", {
     )
 
     for (fmt in formats) {
-        data <- data.frame(
-            time = fmt,
-            value = c(1, 2),
-            stringsAsFactors = FALSE
-        )
-        result <- parse_time_channel(data, "time")
-        expect_equal(result$data$time[1L], 0)
+        expect_equal(parse_time_channel(fmt)$time, c(0, 1))
     }
 })
 
 test_that("parse_time_channel() parses time-only H:MM:SS character format", {
-    data <- data.frame(
-        time = c("10:00:00", "10:00:01"),
-        value = c(1, 2),
-        stringsAsFactors = FALSE
-    )
+    result <- parse_time_channel(c("10:00:00", "10:00:01"))
 
-    result <- parse_time_channel(data, "time")
-
-    expect_equal(result$data$time, c(0, 1))
+    expect_equal(result$time, c(0, 1))
 })
 
 test_that("parse_time_channel() handles milliseconds in timestamps", {
-    data <- data.frame(
-        time = c("2025-01-01T10:00:00.123", "2025-01-01T10:00:01.456"),
-        value = c(1, 2),
-        stringsAsFactors = FALSE
+    result <- parse_time_channel(
+        c("2025-01-01T10:00:00.123", "2025-01-01T10:00:01.456")
     )
 
-    result <- parse_time_channel(data, "time")
-
-    expect_equal(result$data$time[1], 0)
-    expect_true(result$data$time[2] > 1 & result$data$time[2] < 2)
+    expect_equal(result$time[1], 0)
+    expect_true(result$time[2] > 1 & result$time[2] < 2)
 })
 
 test_that("parse_time_channel() converts POSIXct to numeric seconds from zero", {
-    data <- data.frame(
-        time = as.POSIXct(c("2025-01-01 10:00:00", "2025-01-01 10:00:01")),
-        value = c(1, 2)
-    )
+    t0 <- as.POSIXct("2025-01-01 10:00:00")
+    result <- parse_time_channel(t0 + c(0, 1))
 
-    result <- parse_time_channel(data, "time", add_timestamp = FALSE)
+    expect_type(result$time, "double")
+    expect_equal(result$time, c(0, 1))
+    expect_s3_class(result$timestamp, "POSIXct")
+    expect_equal(as.numeric(result$timestamp), as.numeric(t0 + c(0, 1)))
 
-    expect_type(result$data$time, "double")
-    expect_false("timestamp" %in% names(result$data))
-    expect_equal(result$data$time, c(0, 1))
-})
-
-test_that("parse_time_channel() always zeros POSIXct regardless of zero_time", {
-    data <- data.frame(
-        time = as.POSIXct(c("2025-01-01 10:00:00", "2025-01-01 10:00:01")),
-        value = c(1, 2)
-    )
-
-    result <- parse_time_channel(data, "time", zero_time = FALSE)
-
-    expect_type(result$data$time, "double")
     ## POSIXct is always relative — always starts from 0
-    expect_equal(result$data$time, c(0, 1))
+    result <- parse_time_channel(t0 + c(0, 1), zero_time = FALSE)
+    expect_equal(result$time, c(0, 1))
 })
 
-test_that("parse_time_channel() returns start_timestamp from POSIXct time_channel", {
+test_that("parse_time_channel() returns start_timestamp from POSIXct time", {
     t0 <- as.POSIXct("2025-03-15 08:00:00")
-    data <- data.frame(
-        time = t0 + c(0, 1, 2),
-        value = c(1, 2, 3)
-    )
+    result <- parse_time_channel(t0 + c(0, 1, 2))
 
-    result <- parse_time_channel(data, "time")
-
-    ## start_timestamp is extracted from the POSIXct column when not in header
-    expect_false(is.null(result$start_timestamp))
+    ## start_timestamp is extracted from the POSIXct series when not in header
     expect_equal(result$start_timestamp, t0, ignore_attr = TRUE)
+    expect_equal(result$timestamp[1L], result$start_timestamp, ignore_attr = TRUE)
 })
 
 test_that("parse_time_channel() start_timestamp is first sample when non-monotonic", {
     t0 <- as.POSIXct("2025-01-01 10:00:00")
-    data <- data.frame(time = t0 + c(5, 0, 10), value = c(1, 2, 3))
-
-    result <- parse_time_channel(data, "time", add_timestamp = TRUE)
+    result <- parse_time_channel(t0 + c(5, 0, 10))
 
     ## start_timestamp + time must reconstruct the original timestamps
     expect_equal(result$start_timestamp, t0 + 5, ignore_attr = TRUE)
-    expect_equal(
-        as.numeric(result$data$timestamp),
-        as.numeric(t0 + c(5, 0, 10))
-    )
+    expect_equal(as.numeric(result$timestamp), as.numeric(t0 + c(5, 0, 10)))
 })
 
 test_that("parse_time_channel() does not force header for dated time series", {
     t0 <- as.POSIXct("2025-03-15 08:00:00")
-    data <- data.frame(time = t0 + 0:2)
 
     result <- parse_time_channel(
-        data,
-        "time",
+        t0 + 0:2,
         start_timestamp = stop("header timestamp was forced")
     )
 
@@ -1455,113 +1520,94 @@ test_that("parse_time_channel() does not force header for dated time series", {
 
 test_that("parse_time_channel() dated time series takes priority over header", {
     t0 <- as.POSIXct("2025-03-15 08:00:00")
-    data <- data.frame(time = format(t0 + 0:2, "%Y-%m-%d %H:%M:%S"))
     header_start <- as.POSIXct("2024-01-01 00:00:00")
 
     result <- parse_time_channel(
-        data,
-        "time",
-        start_timestamp = header_start,
-        add_timestamp = TRUE
+        format(t0 + 0:2, "%Y-%m-%d %H:%M:%S"),
+        start_timestamp = header_start
     )
 
     expect_equal(result$start_timestamp, t0)
-    expect_equal(result$data$timestamp, t0 + 0:2, ignore_attr = TRUE)
+    expect_equal(result$timestamp, t0 + 0:2, ignore_attr = TRUE)
 })
 
 test_that("parse_time_channel() header anchors time-only series", {
-    data <- data.frame(time = c("10:00:00", "10:00:01"))
     header_start <- as.POSIXct("2025-03-15 10:00:00")
 
     result <- parse_time_channel(
-        data,
-        "time",
-        start_timestamp = header_start,
-        add_timestamp = TRUE
+        c("10:00:00", "10:00:01"),
+        start_timestamp = header_start
     )
 
     expect_equal(result$start_timestamp, header_start)
-    expect_equal(result$data$timestamp, header_start + 0:1)
+    expect_equal(result$timestamp, header_start + 0:1)
 })
 
 test_that("parse_time_channel() header anchors fractional-day series", {
-    data <- data.frame(time = c(0.5, 0.5 + 1 / 86400))
     header_start <- as.POSIXct("2025-03-15 12:00:00")
 
     result <- parse_time_channel(
-        data,
-        "time",
-        start_timestamp = header_start,
-        add_timestamp = TRUE
+        c(0.5, 0.5 + 1 / 86400),
+        start_timestamp = header_start
     )
 
     expect_equal(result$start_timestamp, header_start)
-    expect_equal(result$data$timestamp, header_start + 0:1, tolerance = 1e-6)
+    expect_equal(result$timestamp, header_start + 0:1, tolerance = 1e-6)
 })
 
-test_that("parse_time_channel() add_timestamp=TRUE adds POSIXct column after time_channel", {
-    t0 <- as.POSIXct("2025-01-01 10:00:00")
-    data <- data.frame(
-        time = t0 + c(0, 1),
-        value = c(1, 2)
-    )
-
-    result <- parse_time_channel(data, "time", add_timestamp = TRUE)
-
-    expect_true("timestamp" %in% names(result$data))
-    expect_s3_class(result$data$timestamp, "POSIXct")
-    expect_type(result$data$time, "double")
-    ## timestamp column inserted immediately after time_channel
-    expect_equal(which(names(result$data) == "timestamp"), 2)
-    expect_equal(
-        result$data$timestamp[1L],
-        result$start_timestamp,
-        ignore_attr = TRUE
-    )
-    expect_equal(as.numeric(result$data$timestamp), as.numeric(t0 + c(0, 1)))
-})
-
-
-test_that("parse_time_channel() add_timestamp=TRUE with start_timestamp reconstructs absolute timestamps", {
-    data <- data.frame(
-        time = c(0, 1, 2),
-        value = c(1, 2, 3)
-    )
+test_that("parse_time_channel() header reconstructs absolute timestamps", {
     start_ts <- as.POSIXct("2025-06-01 09:00:00")
 
-    result <- parse_time_channel(
-        data,
-        "time",
-        start_timestamp = start_ts,
-        add_timestamp = TRUE
-    )
+    result <- parse_time_channel(c(0, 1, 2), start_timestamp = start_ts)
 
-    expect_true("timestamp" %in% names(result$data))
-    expect_s3_class(result$data$timestamp, "POSIXct")
-
-    expect_equal(
-        as.numeric(result$data$timestamp),
-        as.numeric(start_ts + c(0, 1, 2))
-    )
+    expect_s3_class(result$timestamp, "POSIXct")
+    expect_equal(as.numeric(result$timestamp), as.numeric(start_ts + c(0, 1, 2)))
     expect_equal(result$start_timestamp, start_ts)
 })
 
-test_that("parse_time_channel() add_timestamp=TRUE with no timestamps skips column silently", {
-    data <- data.frame(
-        time = c(10, 20, 30),
-        value = c(1, 2, 3)
-    )
+test_that("parse_time_channel() returns NULL timestamps when none available", {
+    result <- parse_time_channel(c(10, 20, 30), start_timestamp = NULL)
 
-    result <- parse_time_channel(
-        data,
-        time_channel = "time",
-        start_timestamp = NULL,
-        add_timestamp = TRUE
-    )
-
-    ## no timestamp available — column not added
-    expect_false("timestamp" %in% names(result$data))
+    expect_null(result$timestamp)
     expect_null(result$start_timestamp)
+})
+
+test_that("read_mnirs() add_timestamp inserts POSIXct column after time_channel", {
+    file_path <- tempfile(fileext = ".csv")
+    on.exit(unlink(file_path))
+    writeLines(
+        c(
+            "SmO2,recorded_at",
+            "55,2025-03-15 08:00:00",
+            "56,2025-03-15 08:00:01"
+        ),
+        file_path
+    )
+
+    df <- read_mnirs(
+        file_path,
+        nirs_channels = "SmO2",
+        time_channel = c(time = "recorded_at"),
+        add_timestamp = TRUE,
+        verbose = FALSE
+    )
+
+    expect_equal(names(df), c("time", "timestamp", "SmO2"))
+    expect_s3_class(df$timestamp, "POSIXct")
+    expect_equal(df$timestamp[1L], attr(df, "start_timestamp"), ignore_attr = TRUE)
+
+    ## no timestamp available — column not added silently
+    writeLines(c("SmO2,time", "55,10", "56,11"), file_path)
+    df <- read_mnirs(
+        file_path,
+        nirs_channels = "SmO2",
+        time_channel = "time",
+        add_timestamp = TRUE,
+        verbose = FALSE
+    )
+
+    expect_false("timestamp" %in% names(df))
+    expect_null(attr(df, "start_timestamp"))
 })
 
 test_that("parse_time_channel() works on fraction-of-day", {
@@ -1571,20 +1617,14 @@ test_that("parse_time_channel() works on fraction-of-day", {
     skip_if_not(file.exists(file_path), "testdata not available")
 
     data <- suppressMessages(readxl::read_excel(file_path)[-(1:2), 1:2])
-    names(data)[2L] <- "time"
-    data$time <- as.numeric(data$time)
+    x <- as.numeric(data[[2L]])
 
-    result <- parse_time_channel(
-        data,
-        time_channel = "time",
-        start_timestamp = NULL,
-        add_timestamp = TRUE
-    )
+    result <- parse_time_channel(x, start_timestamp = NULL)
 
-    expect_equal(class(result$data$time), "numeric")
-    expect_equal(result$data$time[1L], 0)
-    expect_equal(median(diff(result$data$time)), 2)
-    expect_equal(class(result$data$timestamp), c("POSIXct", "POSIXt"))
+    expect_equal(class(result$time), "numeric")
+    expect_equal(result$time[1L], 0)
+    expect_equal(median(diff(result$time)), 2)
+    expect_equal(class(result$timestamp), c("POSIXct", "POSIXt"))
     expect_equal(class(result$start_timestamp), c("POSIXct", "POSIXt"))
     ## should return today's date, local time zone, precise timestamp
     expect_equal(as.Date(result$start_timestamp), Sys.Date())
@@ -1592,13 +1632,12 @@ test_that("parse_time_channel() works on fraction-of-day", {
     expect_equal(format(result$start_timestamp, "%H:%M:%OS"), "13:52:59")
 })
 
-test_that("parse_time_channel() returns local time zonel", {
+test_that("read_mnirs() returns local time zone start_timestamp", {
     perfpro <- test_path("testdata/perfpro-mre.xlsx")
     moxy_occl <- test_path("testdata/moxy-occlusion.xlsx")
-    vo2master <- test_path("testdata/vo2master.csv")
     skip_if_not(file.exists(perfpro), "testdata not available")
     skip("run in local time PDT/PST zone")
-    
+
     file_list <- c(
         perfpro, ## today's date, 0:00:00
         moxy_occl, ## today's date, 13:52:59
@@ -1606,171 +1645,100 @@ test_that("parse_time_channel() returns local time zonel", {
         example_mnirs("moxy_ramp") ## today's date 0:29:00.41
     )
 
-    timestamp_list <- list()
-    for (.file in file_list) {
-        # .file = file_list[3]
-        data <- read_file(.file)
-        detected_list <- detect_mnirs_device(data)
-        nirs_device <- detected_list$nirs_device
-        header_row <- detected_list$header_row
-
-        channels <- detect_device_channels(
-            data,
-            header_row,
-            nirs_device,
-            nirs_channels = NULL,
-            time_channel = NULL,
-            keep_all = FALSE,
-            verbose = FALSE
+    timestamp_list <- lapply(file_list, \(.file) {
+        df <- read_mnirs(
+            .file, add_timestamp = TRUE, zero_time = TRUE, verbose = FALSE
         )
-        nirs_channels <- channels$nirs_channels
-        time_channel <- channels$time_channel
-        keep_all <- channels$keep_all
-
-        table_list <- read_data_table(data, header_row, nirs_channels)
-        data <- table_list$data_table
-        file_header <- table_list$file_header
-
-        start_timestamp <- extract_start_timestamp(file_header)
-
-        time_channel <- detect_time_channel(
-            data,
-            time_channel,
-            nirs_device,
-            verbose = FALSE
-        )
-
-        renamed_list <- select_rename_data(
-            data,
-            nirs_channels,
-            time_channel,
-            event_channel = NULL,
-            keep_all,
-            verbose = FALSE
-        )
-        data <- renamed_list$data
-        nirs_renamed <- renamed_list$nirs_channel
-        time_renamed <- renamed_list$time_channel
-        event_renamed <- renamed_list$event_channel
-
-        data <- remove_empty_rows_cols(data)
-        data <- convert_type(
-            data, nirs_renamed, time_renamed, event_renamed, verbose = FALSE
-        )
-        time_list <- parse_time_channel(
-            data,
-            time_renamed,
-            start_timestamp,
-            add_timestamp = TRUE,
-            zero_time = TRUE
-        )
-
-        expect_true(
-            format(time_list$start_timestamp, "%Z") %in% c("PDT", "PST")
-        )
-        timestamp_list <- c(timestamp_list, list(time_list$start_timestamp))
-    }
+        start_timestamp <- attr(df, "start_timestamp")
+        expect_true(format(start_timestamp, "%Z") %in% c("PDT", "PST"))
+        start_timestamp
+    })
     timestamp_list <- do.call(c, timestamp_list)
     expect_equal(as.Date(timestamp_list), rep(Sys.Date(), 4))
-    
+
     expect_equal(
         format(timestamp_list, "%H:%M:%OS2"),
         c("00:00:00.00", "13:52:59.00", "13:17:13.00", "00:29:00.41")
     )
 })
 
-## parse_sample_rate() ================================================
-test_that("parse_sample_rate returns correct structure", {
-    data <- data.frame(
-        time = seq(0, 10, by = 0.1),
-        value = rnorm(101, 10, 1)
+## datetime helpers ===================================================
+test_that("hms_to_seconds() converts H:MM and H:MM:SS.fff strings", {
+    expect_equal(
+        hms_to_seconds(c("1:30", "01:02:03", "13:17:13.5", NA, "", "abc")),
+        c(5400, 3723, 47833.5, NA, NA, NA)
     )
-    file_header <- matrix(NA, nrow = 5, ncol = 5)
-
-    result <- parse_sample_rate(
-        data = data,
-        file_header = file_header,
-        time_channel = "time",
-        sample_rate = 10,
-        nirs_device = NULL,
-        verbose = FALSE
-    )
-
-    expect_type(result, "list")
-    expect_named(result, c("data", "time_channel", "sample_rate"))
-    expect_s3_class(result$data, "data.frame")
-    expect_type(result$time_channel, "character")
-    expect_type(result$sample_rate, "double")
-    expect_equal(result$data$value, data$value)
-    expect_equal(nrow(result$data), nrow(data))
-    expect_equal(result$sample_rate, 10)
 })
 
-test_that("parse_sample_rate handles Artinis device", {
-    file_header <- read_file(example_mnirs("artinis_intervals"))
-    data <- read_mnirs(
+test_that("detect_dttm_format() finds first matching format from first value", {
+    expect_equal(detect_dttm_format(c(NA, "", "10:00:01")), "%H:%M:%OS")
+    expect_equal(
+        detect_dttm_format("2025-01-01T10:00:00"),
+        "%Y-%m-%dT%H:%M:%OS"
+    )
+    expect_equal(
+        detect_dttm_format("01/01/2025 10:00:00"),
+        "%d/%m/%Y %H:%M:%OS"
+    )
+    expect_null(detect_dttm_format(c("abc", "10:00:01")))
+    expect_null(detect_dttm_format(c(NA, "")))
+})
+
+test_that("parse_dttm() anchors time-only values to local midnight", {
+    midnight <- as.POSIXct(format(Sys.Date()))
+    expect_equal(
+        parse_dttm(c("10:00:00", "10:00:01"), dttm_opts[1L]),
+        midnight + c(36000, 36001)
+    )
+    expect_equal(
+        parse_dttm("2025-01-01 10:00:00", "%Y-%m-%d %H:%M:%OS"),
+        as.POSIXct("2025-01-01 10:00:00")
+    )
+})
+
+test_that("read_file() strips whitespace around csv cells", {
+    file_path <- tempfile(fileext = ".csv")
+    on.exit(unlink(file_path))
+    writeLines(c(" SmO2 , time ", " 55 ,  1"), file_path)
+
+    result <- read_file(file_path)
+
+    expect_equal(unname(unlist(result[1, ])), c("SmO2", "time"))
+    expect_equal(unname(unlist(result[2, ])), c("55", "1"))
+})
+
+
+## oxysoft_sample_rate() ==============================================
+test_that("oxysoft_sample_rate() reads export sample rate from header", {
+    raw <- read_file(example_mnirs("artinis_intervals"))
+    header <- raw[seq_len(detect_mnirs_device(raw)$header_row), ]
+
+    expect_equal(oxysoft_sample_rate(header), 10)
+})
+
+test_that("read_mnirs() derives Artinis time from sample index", {
+    df <- read_mnirs(
         example_mnirs("artinis_intervals"),
         nirs_channels = c(HHb = 2, O2Hb = 3),
         time_channel = c(sample = 1),
-        event_channel = NULL,
-        verbose = FALSE
-    ) |>
-        dplyr::select(-time)
-
-    result <- parse_sample_rate(
-        data = data,
-        file_header = file_header,
-        time_channel = "sample",
-        sample_rate = NULL,
-        nirs_device = "Artinis",
         verbose = FALSE
     )
 
-    expect_equal(result$sample_rate, 10)
-    expect_true("time" %in% names(result$data))
-    expect_equal(result$time_channel, "time")
-    expect_equal(ncol(result$data), 4)
-    expect_equal(result$data$time, data$sample / 10)
-})
+    expect_equal(names(df)[1:2], c("time", "sample"))
+    expect_equal(attr(df, "time_channel"), "time")
+    expect_equal(attr(df, "sample_rate"), 10)
+    expect_equal(df$time, df$sample / 10)
 
-test_that("parse_sample_rate errors when rate indeterminable", {
-    data <- data.frame(x = rep(1, 10))
-    file_header <- matrix(NA, nrow = 5, ncol = 5)
-
-    expect_error(
-        parse_sample_rate(
-            data = data,
-            file_header = file_header,
-            time_channel = "x",
-            sample_rate = NULL,
-            verbose = FALSE
-        ),
-        "Unable to estimate.*sample_rate"
-    )
-})
-
-test_that("parse_sample_rate verbose output for Artinis", {
-    file_header <- read_file(example_mnirs("artinis_intervals"))
-    data <- read_mnirs(
+    ## existing "time" name is kept unique
+    df <- read_mnirs(
         example_mnirs("artinis_intervals"),
-        nirs_channels = c(HHb = 2, O2Hb = 3),
-        time_channel = c(sample = 1),
-        event_channel = NULL,
+        nirs_channels = c(HHb = 2),
+        time_channel = c(time = 1),
         verbose = FALSE
-    ) |>
-        dplyr::select(-time)
-
-    expect_message(
-        result <- parse_sample_rate(
-            data = data,
-            file_header = file_header,
-            time_channel = "sample",
-            sample_rate = NULL,
-            nirs_device = "Artinis",
-            verbose = TRUE
-        ),
-        "Oxysoft.*sample_rate"
     )
+
+    expect_equal(names(df)[1:2], c("time_1", "time"))
+    expect_equal(attr(df, "time_channel"), "time_1")
 })
 
 ## detect_irregular_samples() =========================================
@@ -1932,6 +1900,15 @@ test_that("read_mnirs auto-detects Train.Red channels when nirs_channels = NULL"
     )
 })
 
+test_that("read_mnirs accepts renamed duplicate channels as originals", {
+    df <- read_mnirs(
+        example_mnirs("train.red"),
+        nirs_channels = c(smo2_left = "SmO2", smo2_right = "SmO2_1"),
+        verbose = FALSE
+    )
+    expect_equal(attr(df, "nirs_channels"), c("smo2_left", "smo2_right"))
+})
+
 test_that("read_mnirs auto-detects Artinis channels when nirs_channels = NULL", {
     file_path <- example_mnirs("artinis_intervals")
 
@@ -1944,13 +1921,14 @@ test_that("read_mnirs auto-detects Artinis channels when nirs_channels = NULL", 
         ),
         "Artinis.*detected"
     ) |>
-        expect_message("Oxysoft.*sample.*column") |> 
         expect_message("Oxysoft.*sample_rate.*10")
 
     expect_s3_class(df, "mnirs")
     expect_equal(attr(df, "nirs_device"), "Artinis")
-    expect_equal(attr(df, "nirs_channels"), "2")
+    expect_equal(attr(df, "nirs_channels"), c("vl_o2hb", "vl_hhb"))
     expect_equal(attr(df, "time_channel"), "time")
+    expect_equal(attr(df, "event_channel"), "event")
+    expect_true(all(c("sample", "time", "vl_o2hb", "vl_hhb", "event") %in% names(df)))
 })
 
 test_that("read_mnirs keep_all = FALSE returns only specified columns by default", {
@@ -2109,9 +2087,9 @@ test_that("read_mnirs moxy invalid channel names", {
         ),
         "Estimated.*sample_rate.*2"
     ) |>
-        expect_warning("irregular") |> 
-        expect_message("Detected.*time_channel")
+        expect_warning("irregular")
 
+    ## device default time_channel used
     expect_equal(attr(df, "time_channel"), "hh:mm:ss")
 
     ## duplicate input names are renamed
@@ -2248,6 +2226,13 @@ test_that("read_mnirs coerces integerish event_channel to integer", {
     expect_type(data$lap, "integer")
 })
 
+test_that("read_mnirs auto-detects Train.Red event_channel", {
+    df <- read_mnirs(example_mnirs("train.red_intervals.csv"), verbose = FALSE)
+
+    expect_equal(attr(df, "event_channel"), "Lap/Event")
+    expect_type(df[["Lap/Event"]], "integer")
+})
+
 test_that("read_mnirs train.red works with zero_time", {
     file_path <- example_mnirs("train.red_intervals.csv")
 
@@ -2300,7 +2285,6 @@ test_that("read_mnirs train.red invalid channel names", {
         ),
         "Estimated.*sample_rate.*10"
     ) |>
-        expect_message("Detected.*time_channel") |> 
         expect_warning("irregular")
 
     expect_equal(attr(df, "time_channel"), "Timestamp (seconds passed)")
@@ -2341,9 +2325,11 @@ test_that("read_mnirs oxysoft works", {
 
     expect_s3_class(df, "mnirs")
     expect_s3_class(df, "data.frame")
+    ## "event" auto-detected from the legend
     expect_true(all(
-        c("time", "HHb", "O2Hb") %in% names(df)
+        c("time", "HHb", "O2Hb", "event") %in% names(df)
     ))
+    expect_equal(attr(df, "event_channel"), "event")
     expect_equal(class(df$time), "numeric")
     expect_gte(df$time[1], 0)
     expect_equal(df$sample[1:10] / 10, df$time[1:10])
@@ -2361,7 +2347,7 @@ test_that("read_mnirs oxysoft works", {
 })
 
 test_that("read_mnirs Oxysoft Portamon works", {
-    file_path <- example_mnirs("portamon-oxcap")
+    file_path <- example_mnirs("portamon_oxcap")
 
     expect_equal(
         read_file(file_path) |>
@@ -2373,7 +2359,7 @@ test_that("read_mnirs Oxysoft Portamon works", {
     )
 
     df <- read_mnirs(
-        file_path = example_mnirs("portamon-oxcap.xlsx"),
+        file_path = example_mnirs("portamon_oxcap.xlsx"),
         nirs_channels = c(thb = 2, hhb = 3, o2hb = 4),
         time_channel = NULL,
         event_channel = c(event = "col_6"),
@@ -2384,7 +2370,7 @@ test_that("read_mnirs Oxysoft Portamon works", {
         c("sample", "time", "event", "thb", "hhb", "o2hb") %in% names(df)
     ))
 
-    ## auto detect channels
+    ## auto detect channels from the legend
     df2 <- read_mnirs(
         file_path,
         nirs_channels = NULL,
@@ -2393,8 +2379,15 @@ test_that("read_mnirs Oxysoft Portamon works", {
     )
 
     expect_true(all(
-        c("sample", "time", "2", "3", "4", "5", "col_6") %in% names(df2)
+        c("sample", "time", "rx1_tx1_thb", "rx1_tx1_hhb", "rx1_tx1_o2hb",
+          "event", "labels") %in% names(df2)
     ))
+    expect_equal(
+        attr(df2, "nirs_channels"),
+        c("rx1_tx1_thb", "rx1_tx1_hhb", "rx1_tx1_o2hb")
+    )
+    expect_equal(attr(df2, "event_channel"), "event")
+    expect_true("Occlusion" %in% df2$labels)
 
     for (d in list(df, df2)) {
         expect_s3_class(d, "mnirs")
@@ -2419,6 +2412,19 @@ test_that("read_mnirs Oxysoft Portamon works", {
         expect_equal(attr(d, "sample_rate"), 10)
         expect_equal(attr(d, "time_channel"), "time")
     }
+})
+
+test_that("read_mnirs Oxysoft event_channel = 'labels' aliases label column", {
+    df <- read_mnirs(
+        example_mnirs("portamon_oxcap"),
+        nirs_channels = c(thb = 2, hhb = 3, o2hb = 4),
+        event_channel = c(event = "labels"),
+        verbose = FALSE
+    )
+
+    expect_equal(attr(df, "event_channel"), "event")
+    expect_true("Occlusion" %in% df$event)
+    expect_false("labels" %in% names(df))
 })
 
 test_that("read_mnirs Oxysoft edge case channel names", {
@@ -2454,9 +2460,8 @@ test_that("read_mnirs Oxysoft edge case channel names", {
             time_channel = NULL,
             verbose = TRUE
         ),
-        "Oxysoft.*sample"
-    ) |>
-        expect_message("Oxysoft.*sample_rate.*10")
+        "Oxysoft.*sample_rate.*10"
+    )
 
     ## detected as "sample" then updated to "time" automatically
     expect_equal(attr(df, "time_channel"), "time")
@@ -2474,6 +2479,14 @@ test_that("read_mnirs Oxysoft edge case channel names", {
         expect_warning("Duplicate")
 
     expect_true(all(c("HHb", "HHb_1") %in% names(df)))
+
+    ## legend names resolve to their column ids
+    df <- read_mnirs(
+        file_path = file_path,
+        nirs_channels = c(o2hb = "vl_o2hb", hhb = "VL HHb")
+    )
+    expect_equal(attr(df, "nirs_channels"), c("o2hb", "hhb"))
+    expect_true(all(c("o2hb", "hhb") %in% names(df)))
 })
 
 ## VO2master app ========================================================
@@ -2499,7 +2512,7 @@ test_that("read_mnirs VO2master with ',' decimals returns numeric", {
     expect_all_true(vapply(df_raw, is.character, logical(1L)))
 
     ## should convert decimal "," to numeric
-    df <- convert_type(df_raw, time_channel = time_channel)
+    df <- convert_type(df_raw, list(time = time_channel))
     expect_all_true(vapply(df[, -c(1:2)], is.numeric, logical(1L)))
 
     ## integrated test
@@ -2536,30 +2549,19 @@ test_that("read_mnirs PerfPro", {
     file_path <- test_path("testdata/perfpro-mre.xlsx")
     skip_if_not(file.exists(file_path), "testdata not available")
 
-    data <- read_file(file_path)
-    detected_list <- detect_mnirs_device(data)
-    nirs_device <- detected_list$nirs_device
-    header_row <- detected_list$header_row
+    raw <- read_file(file_path)
+    device <- detect_mnirs_device(raw)
 
-    expect_equal(nirs_device, "PerfPro")
-    expect_equal(header_row, 3)
+    expect_equal(device$nirs_device, "PerfPro")
+    expect_equal(device$header_row, 3)
 
     expect_message(
-        channels <- detect_device_channels(
-            data,
-            header_row,
-            nirs_device,
-            nirs_channels = NULL,
-            time_channel = NULL,
-            keep_all = FALSE,
-            verbose = TRUE
-        ),
+        channels <- resolve_channels(raw, device, test_user(), verbose = TRUE),
         "PerfPro"
     )
 
-    expect_equal(channels$time_channel, "Time")
-    expect_equal(channels$nirs_channels, c("SmO2 (1614)", "SmO2 (1615)"))
-    expect_true(channels$keep_all)
+    expect_equal(channels$time, name_channels("Time"))
+    expect_equal(channels$nirs, name_channels(c("SmO2 (1614)", "SmO2 (1615)")))
 
     ## integrated test
     expect_message(
@@ -2639,6 +2641,52 @@ test_that("create_mnirs_data accepts NSE for *_channels", {
     df_list <- create_mnirs_data(df, meta)
     expect_equal(attr(df_list, "nirs_channels"), c("B", "C"))
     expect_equal(attr(df_list, "sample_rate"), 2)
+})
+
+test_that("create_mnirs_data renames channels", {
+    df <- tibble(A = 1:2, B = 3:4, C = 5:6, lap = c("a", "b"))
+
+    ## c() expression renames columns and stores new names, order kept
+    df_ren <- create_mnirs_data(
+        df,
+        nirs_channels = c(b = "B", c = "C"),
+        time_channel = c(time = "A"),
+        event_channel = c(event = "lap")
+    )
+    expect_equal(names(df_ren), c("time", "b", "c", "event"))
+    expect_equal(attr(df_ren, "nirs_channels"), c("b", "c"))
+    expect_equal(attr(df_ren, "time_channel"), "time")
+    expect_equal(attr(df_ren, "event_channel"), "event")
+
+    ## external named vector and list form
+    chans <- c(b = "B", c = "C")
+    df_ext <- create_mnirs_data(df, nirs_channels = chans)
+    expect_equal(names(df_ext), c("A", "b", "c", "lap"))
+    expect_equal(attr(df_ext, "nirs_channels"), c("b", "c"))
+
+    df_list <- create_mnirs_data(df, list(time_channel = c(time = "A")))
+    expect_equal(names(df_list), c("time", "B", "C", "lap"))
+    expect_equal(attr(df_list, "time_channel"), "time")
+
+    ## partial renaming keeps unnamed originals
+    df_part <- create_mnirs_data(df, nirs_channels = c(b = "B", "C"))
+    expect_equal(attr(df_part, "nirs_channels"), c("b", "C"))
+
+    ## channel name wins clash with existing column
+    df_clash <- create_mnirs_data(df, time_channel = c(B = "A"))
+    expect_equal(names(df_clash), c("B", "B_1", "C", "lap"))
+    expect_equal(attr(df_clash, "time_channel"), "B")
+
+    ## missing original errors
+    expect_error(
+        create_mnirs_data(df, nirs_channels = c(b = "typo")),
+        "Channel names not detected"
+    )
+
+    ## unnamed input unchanged
+    df_plain <- create_mnirs_data(df, nirs_channels = c("B", "C"))
+    expect_equal(names(df_plain), names(df))
+    expect_equal(attr(df_plain, "nirs_channels"), c("B", "C"))
 })
 
 test_that("create_mnirs_data preserves grouping", {

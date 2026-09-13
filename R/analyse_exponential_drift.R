@@ -1,0 +1,604 @@
+#' Exponential-drift function
+#'
+#' @description
+#' Calculate a two-phase curve: a *fast* [monoexponential()] primary response
+#' plus a *slow* linear secondary drift beginning near the primary asymptote.
+#' Model family fit by [analyse_kinetics()] with
+#' `method = "exponential_drift"`, and by [stats::nls()] via the self-starting
+#' wrapper [SSexponential_drift()].
+#'
+#' @param slope_B A numeric parameter for the linear drift rate `dx/dt` of the
+#'   secondary phase, in response units per unit of the predictor variable
+#'   `t`.
+#' @param drift_fraction A numeric fraction of the primary amplitude `B - A`
+#'   in `(0.5, 1)` at which the linear drift begins, where the primary
+#'   response reaches `A + drift_fraction * (B - A)`.
+#' @inheritParams monoexponential
+#'
+#' @details
+#' ## Model equations
+#'
+#' - 5-parameter: `A + (B - A) * (1 - exp(-t / tau)) +
+#'   slope_B * pmax(t + tau * log(1 - drift_fraction), 0)`
+#' - 6-parameter: `A + (B - A) * (1 - exp(-pmax(t - TD, 0) / tau)) +
+#'   slope_B * pmax(t - TD + tau * log(1 - drift_fraction), 0)`
+#'
+#' `A`, `B`, `tau`, and `TD` are as for [monoexponential()]. The drift onset
+#' is not a free estimate: the secondary drift is exactly zero before
+#' `TD - tau * log(1 - drift_fraction)` (`TD = 0` when absent), and
+#' `drift_fraction = 0.95` places the onset at `TD + 3 * tau`.
+#'
+#' The excursion point `texc` is where the drift rate overtakes the decaying
+#' primary rate, `TD + tau * log(|B - A| / (|slope_B| * tau))`, floored at the
+#' drift onset.
+#'
+#' @returns A numeric vector of predicted values the same length as the
+#'   predictor variable `t`.
+#'
+#' @seealso [analyse_kinetics()], [SSexponential_drift()],
+#'   [monoexponential()], [biexponential()], [sigmoidal_drift()]
+#'
+#' @examples
+#' ## create an exponential curve with late linear drift and random noise
+#' set.seed(13)
+#' t <- 1:180
+#' x <- exponential_drift(
+#'     t, A = 10, B = 100, tau = 12,
+#'     slope_B = -0.5, drift_fraction = 0.95, TD = 15
+#' ) + rnorm(length(t), 0, 2)
+#' data <- data.frame(t, x)
+#'
+#' ## the drift onset fraction is held constant in the formula
+#' model <- nls(
+#'     x ~ SSexponential_drift(
+#'         t, A, B, tau, slope_B, drift_fraction = 0.95, TD
+#'     ),
+#'     data = data,
+#'     algorithm = "port",
+#'     lower = c(-Inf, -Inf, 0, -Inf, 0),
+#'     control = nls.control(warnOnly = TRUE)
+#' )
+#' summary(model)
+#'
+#' y <- predict(model, data)
+#'
+#' \donttest{
+#'     if (requireNamespace("ggplot2", quietly = TRUE)) {
+#'         ggplot2::ggplot(data, ggplot2::aes(t, x)) +
+#'             theme_mnirs() +
+#'             ggplot2::geom_point() +
+#'             ggplot2::geom_line(ggplot2::aes(y = y))
+#'     }
+#' }
+#'
+#' @export
+exponential_drift <- function(
+    t,
+    A,
+    B,
+    tau,
+    slope_B,
+    drift_fraction,
+    TD = NULL
+) {
+    ## primary monoexponential phase + hinge-linear secondary drift from
+    ## the onset
+    onset <- expdrift_onset(tau, drift_fraction, TD)
+    return(monoexponential(t, A, B, tau, TD) + slope_B * pmax(t - onset, 0))
+}
+
+
+#' Drift onset time of the exponential-drift model
+#'
+#' The time at which a monoexponential response reaches the `drift_fraction`
+#' fraction of its amplitude, by the analytic inverse
+#' `TD - tau * log(1 - drift_fraction)` (see [exponential_drift()]).
+#'
+#' @inheritParams exponential_drift
+#'
+#' @returns A numeric vector of onset times, `TD = 0` when `NULL`.
+#'
+#' @keywords internal
+expdrift_onset <- function(tau, drift_fraction, TD = NULL) {
+    ## a fraction outside (0, 1) has no onset; catches a multiple of tau
+    ## passed in its place
+    if (any(drift_fraction <= 0 | drift_fraction >= 1, na.rm = TRUE)) {
+        stop("`drift_fraction` must be a fraction of the amplitude in (0, 1).")
+    }
+    return((TD %||% 0) - tau * log1p(-drift_fraction))
+}
+
+
+#' Initiate self-starting exponential-drift model
+#'
+#' [expdrift_init()]: Returns initial values for the parameters in a
+#' `selfStart` model.
+#'
+#' @inheritParams monoexp_init
+#'
+#' @returns [expdrift_init()]: Initial starting estimates for parameters in
+#'   the model called by [SSexponential_drift()].
+#'
+#' @keywords internal
+expdrift_init <- function(mCall, data, LHS, ...) {
+    fixed <- list(...)$fixed %||% list()
+    tx <- sortedXyData(mCall[["t"]], LHS, data)
+    return(expdrift_start(tx[["y"]], tx[["x"]], fixed, "TD" %in% names(mCall)))
+}
+
+
+#' Grid-profiled starting estimates for the exponential-drift model
+#'
+#' Vector-level initialiser behind [expdrift_init()], called directly by
+#' the kinetics worker on the fit window. Profiles `tau` (and `TD`) on a
+#' coarse grid and keeps the RSS-minimising start (cf.
+#' [monoexp_start()]). The model is linear in `A`, `B`, and `slope_B` once
+#' `tau` and `TD` are held, so those are solved by least squares at every
+#' grid point at once via [solve_grid3()]. User-fixed `tau`, `TD`, and
+#' `drift_fraction` narrow the grids; the linear parameters are always solved
+#' free, as this is only a seed. `tau` is capped so the drift onset stays
+#' inside the record; a grid point whose hinge has no support is singular
+#' and skipped.
+#'
+#' @inheritParams monoexp_start
+#'
+#' @returns A named numeric vector of starting estimates in model order.
+#'
+#' @keywords internal
+expdrift_start <- function(x, t, fixed = list(), has_TD = FALSE) {
+    n <- length(t)
+    span <- diff(range(t))
+    if (!is.finite(span) || span <= 0) {
+        span <- 1
+    }
+    ## the onset in multiples of tau
+    drift_fraction <- fixed$drift_fraction %||% 0.95
+    m <- -log1p(-drift_fraction)
+    tau_grid <- fixed$tau %||%
+        exp(seq(log(span / 100), log(span / m), length.out = 13L))
+    td_grid <- if (!has_TD) {
+        0
+    } else {
+        fixed$TD %||% seq(0, 0.5 * span, length.out = 11L)
+    }
+
+    ## bases e, 1 - e, and the hinge from the drift onset; the response is
+    ## centred for conditioning and the asymptotes shifted back. the outer
+    ## products go through matmul and the gram diagonals through crossprod,
+    ## which avoid the n x k temporaries of `outer(FUN)` and squares
+    xm <- mean(x)
+    xc <- x - xm
+    sx <- sum(xc)
+    xx <- sum(xc^2)
+    onset <- rep(m * tau_grid, each = n)
+    blocks <- lapply(td_grid, \(.td) {
+        ts <- if (has_TD) pmax(t - .td, 0) else t
+        E <- exp(outer(-ts, 1 / tau_grid))
+        H <- pmax(t - .td - onset, 0)
+        dim(H) <- dim(E)
+        s <- colSums(E)
+        d <- diag(crossprod(E))
+        xe <- drop(crossprod(E, xc))
+        eh <- diag(crossprod(E, H))
+        solve_grid3(
+            g11 = d,
+            g12 = s - d,
+            g13 = eh,
+            g22 = n - 2 * s + d,
+            g23 = colSums(H) - eh,
+            g33 = diag(crossprod(H)),
+            b1 = xe,
+            b2 = sx - xe,
+            b3 = drop(crossprod(H, xc)),
+            xx = xx
+        )
+    })
+    k <- which.min(vapply(blocks, \(.b) min(.b$rss), numeric(1)))
+    b <- blocks[[k]]
+    i <- which.min(b$rss)
+    if (!is.finite(b$rss[[i]])) {
+        stop("No starting estimates could be resolved from the response.")
+    }
+
+    return(c(
+        A = b$c1[[i]] + xm,
+        B = b$c2[[i]] + xm,
+        tau = tau_grid[[i]],
+        slope_B = b$c3[[i]],
+        drift_fraction = drift_fraction,
+        TD = if (has_TD) td_grid[[k]]
+    ))
+}
+
+
+#' Exponential-drift model with gradient
+#'
+#' Model function of [SSexponential_drift()]: [exponential_drift()] plus
+#' the partial derivatives for the parameters written as bare symbols in
+#' the call (see [free_params()]), so [stats::nls()] skips
+#' [stats::numericDeriv()]. The hinge derivatives are one-sided at the
+#' drift onset.
+#'
+#' @inheritParams exponential_drift
+#'
+#' @returns A numeric vector of predicted values with a `"gradient"`
+#'   attribute when any parameter is free.
+#'
+#' @keywords internal
+expdrift_model <- function(t, A, B, tau, slope_B, drift_fraction, TD = NULL) {
+    has_TD <- !is.null(TD)
+    ts <- if (has_TD) pmax(t - TD, 0) else t
+    e <- exp(-ts / tau)
+    onset <- expdrift_onset(tau, drift_fraction, TD)
+    h <- pmax(t - onset, 0)
+    val <- A + (B - A) * (1 - e) + slope_B * h
+    free <- free_params(
+        match.call(),
+        c("A", "B", "tau", "slope_B", "drift_fraction", if (has_TD) "TD")
+    )
+    if (length(free) > 0L) {
+        on <- t > onset
+        grad <- cbind(
+            A = e,
+            B = 1 - e,
+            # fmt: skip
+            tau = -(B - A) * e * ts / tau^2 +
+                slope_B * log1p(-drift_fraction) * on,
+            slope_B = h,
+            drift_fraction = -slope_B * tau / (1 - drift_fraction) * on,
+            TD = if (has_TD) -(t > TD) * (B - A) * e / tau - slope_B * on
+        )
+        attr(val, "gradient") <- grad[, free, drop = FALSE]
+    }
+    return(val)
+}
+
+
+#' Self-starting exponential-drift model
+#'
+#' @description
+#' Creates initial coefficient estimates for a `selfStart` wrapper around
+#' [exponential_drift()], for use with [stats::nls()]. Supports both the
+#' 5-parameter (A, B, tau, slope_B, drift_fraction) and 6-parameter forms
+#' adding a time delay TD; arity is inferred from the formula passed to
+#' [stats::nls()].
+#'
+#' @usage
+#' SSexponential_drift(t, A, B, tau, slope_B, drift_fraction, TD)
+#'
+#' @inheritParams exponential_drift
+#'
+#' @details
+#' ## Model formulas
+#'
+#' - 5-parameter:
+#'   `x ~ SSexponential_drift(t, A, B, tau, slope_B, drift_fraction)`
+#' - 6-parameter:
+#'   `x ~ SSexponential_drift(t, A, B, tau, slope_B, drift_fraction, TD)`
+#'
+#' The hinge at the drift onset `TD - tau * log(1 - drift_fraction)` is not
+#' differentiable, so `algorithm = "port"` with `tau` (and `TD`) bounded
+#' non-negative and `control = nls.control(warnOnly = TRUE)` is recommended.
+#'
+#' Starting estimates are profiled on a coarse grid of `tau` (and `TD`) with
+#' `A`, `B`, and `slope_B` solved by least squares at each grid point,
+#' keeping the residual-minimising start.
+#'
+#' The model function returns the analytic gradient (one-sided at the hinge)
+#' for the free parameters as a `"gradient"` attribute, so [stats::nls()]
+#' does not resort to [stats::numericDeriv()]. [stats::predict()] on a fitted
+#' model carries the attribute; drop it with `as.vector()`.
+#'
+#' ## Fixing parameters
+#'
+#' Any parameter may be held constant by writing a value in place of its name
+#' in the formula, e.g.
+#' `x ~ SSexponential_drift(t, A, B, tau, slope_B, drift_fraction = 0.95)`
+#' holds the drift onset at 95% of the amplitude (`TD + 3 * tau`). Fixed
+#' parameters are excluded from estimation and are not returned by
+#' [stats::coef()].
+#'
+#' @returns A numeric vector of predicted values the same length as the
+#'   predictor variable `t`.
+#'
+#' @seealso [exponential_drift()], [analyse_kinetics()], [stats::nls()],
+#'   [stats::selfStart()], [SSmonoexponential()], [SSbiexponential()]
+#'
+#' @examples
+#' ## create an exponential curve with late linear drift and random noise
+#' set.seed(13)
+#' t <- 1:180
+#' x <- exponential_drift(
+#'     t, A = 10, B = 100, tau = 12,
+#'     slope_B = -0.5, drift_fraction = 0.98, TD = 15
+#' ) + rnorm(length(t), 0, 2)
+#' data <- data.frame(t, x)
+#'
+#' ## 6-parameter fit with the drift onset held at 98% of the amplitude
+#' model <- nls(
+#'     x ~ SSexponential_drift(
+#'         t, A, B, tau, slope_B, drift_fraction = 0.98, TD
+#'     ),
+#'     data = data,
+#'     algorithm = "port",
+#'     lower = c(-Inf, -Inf, 0, -Inf, 0),
+#'     control = nls.control(warnOnly = TRUE)
+#' )
+#' summary(model)
+#'
+#' @export
+SSexponential_drift <- selfStart(
+    model = expdrift_model,
+    initial = init_fixed(
+        expdrift_init,
+        c("A", "B", "tau", "slope_B", "drift_fraction", "TD")
+    ),
+    parameters = c("A", "B", "tau", "slope_B", "drift_fraction", "TD")
+)
+
+
+#' Analyse exponential-drift kinetics across NIRS channels
+#'
+#' Internal channel-level dispatch for
+#' `analyse_kinetics(method = "exponential_drift")`. Fits a two-phase
+#' monoexponential + linear-drift curve to each `nirs_channel` within a
+#' single *"mnirs"* data frame via [fit_exponential_drift()], falling
+#' back to [fit_monoexponential()] where the drift is unsupported (see
+#' `kinetics_fallbacks`). See [analyse_kinetics()] for user-facing
+#' documentation.
+#'
+#' @param use_TD Logical; default is `TRUE` to attempt to fit a 6-parameter
+#'   [SSexponential_drift()] model with a time delay. If the 6-parameter fit
+#'   fails, or if `use_TD = FALSE`, attempts to fit a reduced 5-parameter
+#'   model without `TD`.
+#' @param drift_fraction A numeric fraction of the amplitude in `(0.5, 1)` at
+#'   which the drift onset is held (*default* `0.95`; `TD + 3 * tau`).
+#'   Always held constant. Applied to every channel, or per-channel as a
+#'   list keyed by channel name, e.g. `drift_fraction = list(smo2 = 0.9)`.
+#' @param fix An *optional* named list of model parameters (`A`, `B`, `tau`,
+#'   `slope_B`, `TD`) to hold constant during fitting, e.g. `fix = list(A = 0)`.
+#'   Applied to every channel, or per-channel as a list of lists keyed by
+#'   channel name, e.g. `fix = list(smo2 = list(A = 0))`. `TD` is fixable
+#'   for channels where `use_TD = TRUE`; a fixed `TD` disables the
+#'   5-parameter fallback.
+#' @inheritParams validate_mnirs
+#' @inheritParams analyse_kinetics
+#' @inheritParams analyse_monoexponential
+#'
+#' @returns A `data.frame` with one row per `nirs_channel` and columns
+#'   `nirs_channels`, `model`, `A`, `B`, `TD`, `tau`, `k`, `MRT`, `HRT`,
+#'   `texc`, `slope_B`, `drift_fraction`, `MRT_fitted`, `HRT_fitted`,
+#'   `texc_fitted`. `texc` is the excursion point where the drift rate
+#'   overtakes the decaying primary rate, never before the drift onset (see
+#'   [expdrift_onset()]). Per-channel metadata are attached as attributes:
+#'   - `"model"`: an [nls][stats::nls] model object, or `NULL` for channels
+#'     where fitting failed.
+#'   - `"fitted_data"`: a named list of per-channel data frames with
+#'     columns `window_idx` and `fitted`.
+#'   - `"diagnostics"`: a `data.frame` with one row per `nirs_channel`
+#'     containing model fit diagnostics.
+#'   - `"channel_args"`: a `data.frame` with one row per `nirs_channel`
+#'     recording the resolved arguments used.
+#'   - `"warnings"`: a `data.frame` of conditions captured during fitting.
+#'
+#' @seealso [analyse_kinetics()], [exponential_drift()],
+#'   [SSexponential_drift()]
+#'
+#' @keywords internal
+analyse_exponential_drift <- function(
+    data,
+    nirs_channels = NULL,
+    time_channel = NULL,
+    use_TD = TRUE,
+    drift_fraction = 0.95,
+    fix = NULL,
+    control = NULL,
+    start_time = NULL,
+    direction = c("auto", "positive", "negative"),
+    end_window = Inf,
+    verbose = TRUE,
+    ...,
+    env = rlang::caller_env()
+) {
+    ## validation ==================================================
+    args <- list(...)
+    ## interval label; falls back to the `data` argument name when unsupplied
+    interval_name <- args$interval_name %||% deparse(substitute(data))
+
+    ## shared prologue: validate data, resolve channels/time, broadcast and
+    ## validate per-channel args
+    setup <- setup_kinetics_worker(
+        data,
+        enquo(nirs_channels),
+        enquo(time_channel),
+        # fmt: skip
+        arg_list = mget(c(
+            "use_TD", "drift_fraction", "fix", "control", "start_time",
+            "direction", "end_window"
+        )),
+        choices = list(direction = c("auto", "positive", "negative")),
+        ## TD is only fixable where that channel fits the 6-parameter model
+        fix_params = \(.a) c("A", "B", "tau", "slope_B", if (.a$use_TD) "TD"),
+        verbose = verbose,
+        env = env
+    )
+
+    ## an unsupported drift falls back to the monoexponential (see
+    ## `kinetics_fallbacks`); the undocumented `model_fallback = FALSE`
+    ## keeps the raw fit
+    return(analyse_kinetics_channels(
+        data,
+        setup$nirs_channels,
+        setup$time_channel,
+        resolve_drift_frac(setup$per_channel, env),
+        fit_exponential_drift,
+        verbose,
+        interval_name,
+        extra_args = args,
+        method = "exponential_drift",
+        fallback = !isFALSE(args$model_fallback),
+        env = env
+    ))
+}
+
+
+#' Fit an exponential-drift model to one channel
+#'
+#' Channel fitter of [analyse_exponential_drift()] (see
+#' [analyse_kinetics_channels()]). Self-starting [SSexponential_drift()]
+#' via [stats::nls()] with `algorithm = "port"`, seeded by
+#' [expdrift_start()]; a failed 6-parameter fit falls back to the
+#' 5-parameter model ([fit_td_fallback()]), and the requested `direction`
+#' is enforced on `B - A` ([enforce_direction()]).
+#'
+#' @inheritParams fit_monoexponential
+#'
+#' @returns The `coefs`/`model`/`fitted_data`/`diag` list of
+#'   [build_fit_results()], or [build_na_results()] when the fit fails.
+#'
+#' @keywords internal
+fit_exponential_drift <- function(x, t, valid, .a, ctx) {
+    x_fit <- x[valid$idx]
+    t_fit <- t[valid$idx]
+    ## NA scaffold (method columns only) for convergence failure
+    na_cols <- kinetics_coef_cols$exponential_drift
+    ## the drift onset fraction is always held constant
+    .a$fix <- c(.a$fix, list(drift_fraction = .a$drift_fraction))
+
+    fit <- fit_td_fallback(
+        x_fit,
+        t_fit,
+        # fmt: skip
+        params = c(
+            "A", "B", "tau", "slope_B", "drift_fraction",
+            if (.a$use_TD) "TD"
+        ),
+        .a,
+        fitter = \(.data, .params, on_error) {
+            ## tau and TD are held non-negative; the hinge is non-smooth,
+            ## so port often stops short of its certificate on usable
+            ## coefficients, which are kept with a warning
+            free <- setdiff(.params, names(.a$fix))
+            lower <- c(
+                tau = diff(range(.data[[2L]])) * 1e-6,
+                TD = 0
+            )[free]
+            lower[is.na(lower)] <- -Inf
+            formula <- build_ss_formula(
+                quote(SSexponential_drift),
+                .params,
+                .a$fix,
+                names(.data)[[1L]],
+                names(.data)[[2L]]
+            )
+            ## seed from the grid profile directly on the fit vectors
+            model <- tryCatch(
+                {
+                    # fmt: skip
+                    start <- expdrift_start(
+                        .data[[1L]], .data[[2L]], .a$fix, "TD" %in% .params
+                    )
+                    embed_fit_call(suppressWarnings(nls(
+                        formula,
+                        .data,
+                        start = start[free],
+                        algorithm = "port",
+                        lower = lower,
+                        control = fit_control(
+                            .a$control,
+                            maxiter = 500L,
+                            warnOnly = TRUE
+                        )
+                    )))
+                },
+                error = on_error
+            )
+            accept_port_fit(model, on_error)
+        },
+        fn = quote(SSexponential_drift),
+        ctx = ctx
+    )
+    if (is.null(fit$model)) {
+        return(build_na_results(na_cols))
+    }
+    params <- fit$params
+    coefs <- full_coefs(fit$model, params, .a$fix)
+
+    ## enforce direction: bounded refit on D = B - A when inverted
+    enforced <- enforce_direction(
+        fit$model,
+        coefs,
+        fit$data,
+        direction = .a$direction,
+        amp_fn = quote(SSexponential_drift),
+        ## data-scaled tau floor: tau pinned here is a degenerate
+        ## step fit, not a genuine response
+        lower = if (!"tau" %in% names(.a$fix)) {
+            c(tau = diff(range(t_fit)) * 1e-6)
+        },
+        fix = .a$fix,
+        control = .a$control,
+        .nirs = ctx$nirs,
+        interval_name = ctx$interval_name,
+        env = ctx$env
+    )
+    if (is.null(enforced)) {
+        return(build_na_results(na_cols))
+    }
+    coefs <- enforced$coefs
+
+    ## TD is already elapsed from start_time, matching the fit time base
+    TD_arg <- if ("TD" %in% params) coefs[["TD"]] else NULL
+    MRT_val <- sum(TD_arg, coefs[["tau"]])
+    HRT_val <- sum(TD_arg, coefs[["tau"]] * log(2))
+    ## excursion point: where the drift rate overtakes the decaying
+    ## primary rate, |B - A| / tau * exp(-(t - TD) / tau) = |slope_B|; the
+    ## turning point when the phases oppose. never before the drift
+    ## onset
+    onset <- expdrift_onset(
+        coefs[["tau"]],
+        coefs[["drift_fraction"]],
+        TD_arg
+    )
+    r <- abs(coefs[["B"]] - coefs[["A"]]) /
+        (abs(coefs[["slope_B"]]) * coefs[["tau"]])
+    texc_val <- max(
+        onset,
+        if (is.finite(r)) sum(TD_arg, coefs[["tau"]] * log(r))
+    )
+
+    ## predict response at MRT, HRT, and texc using the full fitted model
+    fitted_params <- exponential_drift(
+        t = c(MRT_val, HRT_val, texc_val),
+        A = coefs[["A"]],
+        B = coefs[["B"]],
+        tau = coefs[["tau"]],
+        slope_B = coefs[["slope_B"]],
+        drift_fraction = coefs[["drift_fraction"]],
+        TD = TD_arg
+    )
+
+    return(build_fit_results(
+        list2DF(list(
+            A = coefs[["A"]],
+            B = coefs[["B"]],
+            TD = TD_arg %||% NA_real_,
+            tau = coefs[["tau"]],
+            k = 1 / coefs[["tau"]], ## time_channel units^-1
+            MRT = MRT_val,
+            HRT = HRT_val,
+            texc = texc_val,
+            slope_B = coefs[["slope_B"]],
+            drift_fraction = coefs[["drift_fraction"]],
+            MRT_fitted = fitted_params[[1L]],
+            HRT_fitted = fitted_params[[2L]],
+            texc_fitted = fitted_params[[3L]]
+        )),
+        enforced$model,
+        x_fit,
+        t_fit,
+        valid,
+        fit$keep,
+        ctx$env
+    ))
+}

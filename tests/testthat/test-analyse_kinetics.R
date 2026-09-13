@@ -1,0 +1,3391 @@
+## detect_direction ====================================================
+test_that("detect_direction returns 'positive' & 'negative' unchanged", {
+    result <- detect_direction(1:10, direction = "positive")
+    expect_equal(result, "positive")
+    
+    result <- detect_direction(1:10, direction = "negative")
+    expect_equal(result, "negative")
+})
+
+test_that("detect_direction detects slope", {
+    x <- c(1, 3, 2, 5, 8, 7, 9, 12, 11, 14)
+    expect_equal(detect_direction(x), "positive")
+    
+    x <- c(14, 11, 12, 9, 7, 8, 5, 2, 3, 1)
+    expect_equal(detect_direction(x), "negative")
+})
+
+test_that("detect_direction uses custom t vector", {
+    ## x rises from 1 to 5, but t is reversed so lm slope is negative
+    x <- c(1, 3, 5)
+    t <- c(10, 5, 1)
+    expect_equal(detect_direction(x, t), "negative")
+})
+
+test_that("detect_direction detects dominant excursion from baseline", {
+    ## symmetric pulse: upward excursion dominates
+    x <- c(0, 5, 10, 5, 0)
+    expect_equal(detect_direction(x), "positive")
+
+    ## symmetric trough: downward excursion dominates
+    x <- c(0, -5, -10, -5, 0)
+    expect_equal(detect_direction(x), "negative")
+
+    ## biexponential drop-recovery: fast fall then slow partial recovery,
+    ## rising limb occupies most of the record but primary direction is down
+    t <- 0:120
+    x <- biexponential(
+        t, A = 70, B = 40, tau = 5, B2 = 60, tau2 = 40
+    )
+    expect_equal(detect_direction(x, t), "negative")
+
+    ## mirrored rise-decay overshoot
+    x <- biexponential(
+        t, A = 40, B = 70, tau = 5, B2 = 50, tau2 = 40
+    )
+    expect_equal(detect_direction(x, t), "positive")
+})
+
+test_that("detect_direction falls back to positive on magnitude tie", {
+    ## equal excursions and abs(max) == abs(min) => positive (>=)
+    x <- c(0, 5, 0, -5, 0)
+    expect_equal(detect_direction(x), "positive")
+})
+
+test_that("detect_direction handles edge cases", {
+    ## falls back when data are flat
+    expect_equal(detect_direction(c(5, 5, 5, 5, 5)), "positive")
+
+    ## falls back when all x are NA
+    expect_equal(detect_direction(rep(NA_real_, 5)), "positive")
+
+    ## excursions tie, but fallback indicates negative
+    x <- c(0, 5, 0, -5, 0)
+    fallback <- c(-1, -8, -2, -1, -3)
+    expect_equal(detect_direction(x, fallback = fallback), "negative")
+})
+
+## compute_diagnostics ====================================================
+test_that("compute_diagnostics returns correct structure", {
+    x <- c(1, 3, 2, 5, 8)
+    t <- seq_along(x)
+    fitted <- predict(lm(x ~ t))
+
+    result <- compute_diagnostics(x, t, fitted)
+
+    expect_s3_class(result, "data.frame")
+    expect_named(
+        result,
+        c("n_obs", "n_params", "r2", "adj_r2", "rmse", 
+        "cv_rmse", "snr", "aic", "aicc", "bic")
+    )
+    expect_type(result$n_obs, "integer")
+    expect_type(result$r2, "double")
+    expect_type(result$adj_r2, "double")
+    expect_type(result$rmse, "double")
+    expect_type(result$snr, "double")
+    expect_type(result$cv_rmse, "double")
+})
+
+test_that("compute_diagnostics matches lm() summary", {
+    x <- c(1, 3, 2, 5, 8, 7, 9, 12, 11, 14)
+    t <- seq_along(x)
+    lm_fit <- lm(x ~ t)
+    fitted <- predict(lm_fit)
+
+    ## n_params = 2L: intercept + slope
+    result <- compute_diagnostics(x, t, fitted, n_params = 2L)
+    lm_summary <- summary(lm_fit)
+
+    expect_equal(result$n_obs, length(fitted))
+    ## r2 = cor(observed, fitted)^2; equals R^2 for OLS
+    expect_equal(result$r2, lm_summary$r.squared)
+    expect_equal(result$adj_r2, lm_summary$adj.r.squared)
+    expect_equal(result$rmse, sqrt(mean(residuals(lm_fit)^2)))
+    expect_equal(result$aic, AIC(lm_fit))
+    expect_equal(result$bic, BIC(lm_fit))
+})
+
+test_that("compute_diagnostics aicc applies small-sample correction", {
+    x <- c(1, 3, 2, 5, 8, 7, 9, 12, 11, 14)
+    t <- seq_along(x)
+    lm_fit <- lm(x ~ t)
+    fitted <- predict(lm_fit)
+    n <- length(x)
+    k <- 3L ## n_params + 1 (intercept + slope + variance)
+
+    result <- compute_diagnostics(x, t, fitted, n_params = 2L)
+
+    expect_equal(
+        result$aicc, AIC(lm_fit) + 2 * k * (k + 1L) / (n - k - 1L)
+    )
+})
+
+test_that("compute_diagnostics n_params adjusts adj_r2 denominator", {
+    x <- c(1, 3, 2, 5, 8, 7, 9, 12, 11, 14)
+    t <- seq_along(x)
+    fitted <- predict(lm(x ~ t))
+    n <- length(x)
+
+    r2 <- compute_diagnostics(x, t, fitted, n_params = 2L)$r2
+    adj_r2_p2 <- compute_diagnostics(x, t, fitted, n_params = 2L)$adj_r2
+    adj_r2_p4 <- compute_diagnostics(x, t, fitted, n_params = 4L)$adj_r2
+
+    expect_equal(adj_r2_p2, 1 - (1 - r2) * (n - 1) / (n - 2))
+    expect_equal(adj_r2_p4, 1 - (1 - r2) * (n - 1) / (n - 4))
+    ## more params → more penalisation
+    expect_lt(adj_r2_p4, adj_r2_p2)
+})
+
+test_that("compute_diagnostics adj_r2 is NA when n <= n_params", {
+    x <- c(1, 2, 3)
+    t <- seq_along(x)
+    fitted <- predict(lm(x ~ t))
+
+    ## n = 3, n_params = 3: denominator = 0 → NA
+    result <- compute_diagnostics(x, t, fitted, n_params = 3L)
+    expect_true(is.na(result$adj_r2))
+})
+
+test_that("compute_diagnostics r2 is bounded for a non-linear fit", {
+    t <- seq(0, 4 * pi, length.out = 50)
+    ## simulate exponential decay with noise
+    x <- 20 * exp(-0.3 * t) + rnorm(50, sd = 0.5)
+    fitted <- 20 * exp(-0.3 * t) ## true curve, no noise
+
+    result <- compute_diagnostics(x, t, fitted)
+
+    expect_true(result$r2 > 0 && result$r2 <= 1)
+    expect_equal(result$r2, cor(x, fitted)^2)
+})
+
+test_that("compute_diagnostics handles perfect fit", {
+    x <- 1:10
+    t <- 1:10
+    fitted <- x # perfect fit
+
+    result <- compute_diagnostics(x, t, fitted, n_params = 2L)
+
+    expect_equal(result$r2, 1)
+    expect_equal(result$adj_r2, 1)
+    expect_equal(result$rmse, 0)
+    expect_true(is.na(result$snr)) ## zero residual variance → NA
+    expect_equal(result$cv_rmse, 0) ## rmse = 0, x_mean != 0
+    ## ss_res = 0 → log-likelihood undefined → information criteria NA
+    expect_true(is.na(result$aic))
+    expect_true(is.na(result$aicc))
+    expect_true(is.na(result$bic))
+})
+
+test_that("compute_diagnostics handles edge cases", {
+    ## n < 2 returns NA
+    result <- compute_diagnostics(x = 5, t = 1, fitted = 5)
+    expect_equal(result$n_obs, 1L)
+    expect_true(is.na(result$r2))
+    expect_true(is.na(result$adj_r2))
+    expect_true(is.na(result$rmse))
+    expect_true(is.na(result$snr))
+    expect_true(is.na(result$cv_rmse))
+    expect_true(is.na(result$aic))
+    expect_true(is.na(result$aicc))
+    expect_true(is.na(result$bic))
+
+    ## n = 2, default n_params = 1L: adj_r2 defined; perfect fit → 1
+    result <- compute_diagnostics(c(1, 2), c(1, 2), c(1, 2))
+    expect_equal(result$n_obs, 2L)
+    expect_equal(result$r2, 1)
+    expect_equal(result$adj_r2, 1)
+    expect_equal(result$rmse, 0)
+})
+
+test_that("compute_diagnostics handles zero variance in x", {
+    x <- rep(5, 10)
+    t <- seq_along(x)
+    fitted <- rep(5, 10)
+
+    result <- compute_diagnostics(x, t, fitted)
+
+    expect_true(is.na(result$r2)) ## ss_tot = 0 → NA
+    expect_equal(result$rmse, 0)
+    expect_true(is.na(result$snr)) ## zero signal variance → NA
+    expect_equal(result$cv_rmse, 0) ## rmse = 0, x_mean = 5
+})
+
+test_that("computes_diagnostics validates input lengths", {
+    x <- 1:5
+    t <- 1:5
+    fitted <- 1:4 # wrong length
+
+    expect_warning(
+        result <- compute_diagnostics(x, t, fitted),
+        "x.*t.*fitted.*equal lengths"
+    )
+    expect_true(is.na(result$r2))
+})
+
+test_that("compute_diagnostics snr is positive for a good fit", {
+    x <- c(1, 3, 2, 5, 8, 7, 9, 12, 11, 14)
+    t <- seq_along(x)
+    fitted <- predict(lm(x ~ t))
+
+    result <- compute_diagnostics(x, t, fitted)
+
+    expect_true(result$snr > 0)
+    ## SNR = 10 * log10(var(signal) / var(residuals))
+    expect_equal(result$snr, 10 * log10(var(x) / var(x - fitted)))
+})
+
+test_that("compute_diagnostics cv_rmse scales with signal magnitude", {
+    t <- seq_len(10)
+
+    x1 <- c(10, 11, 10, 12, 11, 10, 13, 11, 10, 12) ## mean ~ 11
+    x2 <- x1 * 10 ## mean ~ 110
+    fitted1 <- predict(lm(x1 ~ t))
+    fitted2 <- predict(lm(x2 ~ t))
+
+    r1 <- compute_diagnostics(x1, t, fitted1)
+    r2 <- compute_diagnostics(x2, t, fitted2)
+
+    ## CV-RMSE should be equal (RMSE and mean scale proportionally)
+    expect_equal(r1$cv_rmse, r2$cv_rmse)
+})
+
+
+## as_data_list ===========================================================
+test_that("as_data_list handles single data frame", {
+    df <- data.frame(t = 1:5, x = rnorm(5))
+    result <- as_data_list(df)
+
+    expect_type(result, "list")
+    expect_length(result, 1)
+    expect_named(result, "interval_1")
+    expect_identical(result[[1]], df)
+})
+
+test_that("as_data_list handles list of data frames", {
+    df1 <- data.frame(t = 1:5, x = rnorm(5))
+    df2 <- data.frame(t = 1:5, y = rnorm(5))
+    data_list <- list(df1, df2)
+
+    result <- as_data_list(data_list)
+
+    expect_type(result, "list")
+    expect_length(result, 2)
+    expect_named(result, c("interval_1", "interval_2"))
+    expect_identical(result[[1]], df1)
+    expect_identical(result[[2]], df2)
+})
+
+test_that("as_data_list preserves names in list", {
+    df1 <- data.frame(t = 1:5, x = rnorm(5))
+    df2 <- data.frame(t = 1:5, y = rnorm(5))
+    data_list <- list(baseline = df1, exercise = df2)
+
+    result <- as_data_list(data_list)
+
+    expect_named(result, c("baseline", "exercise"))
+})
+
+test_that("as_data_list fills only unnamed list elements", {
+    df1 <- data.frame(t = 1:5, x = rnorm(5))
+    df2 <- data.frame(t = 1:5, y = rnorm(5))
+    ## second element unnamed: supplied name kept, blank gets `interval_<n>`
+    data_list <- list(baseline = df1, df2)
+
+    result <- as_data_list(data_list)
+
+    expect_named(result, c("baseline", "interval_2"))
+})
+
+test_that("as_data_list handles grouped data frame", {
+    skip_if_not_installed("dplyr")
+
+    df <- data.frame(
+        t = rep(1:5, 2),
+        x = rnorm(10),
+        group = rep(c("A", "B"), each = 5)
+    )
+    df <- create_mnirs_data(
+        df,
+        nirs_channels = "x",
+        time_channel = "t"
+    )
+    grouped_df <- dplyr::group_by(df, group)
+
+    result <- as_data_list(grouped_df)
+
+    expect_type(result, "list")
+    expect_length(result, 2)
+    expect_named(result, c("A", "B"))
+    expect_s3_class(result[[1]], "mnirs")
+    expect_s3_class(result[[2]], "mnirs")
+})
+
+test_that("as_data_list handles multi-column grouping", {
+    skip_if_not_installed("dplyr")
+
+    df <- data.frame(
+        t = rep(1:5, 4),
+        x = rnorm(20),
+        condition = rep(c("rest", "active"), each = 10),
+        subject = rep(c("S1", "S2"), each = 5, times = 2)
+    )
+    df <- create_mnirs_data(
+        df,
+        nirs_channels = "x",
+        time_channel = "t"
+    )
+    grouped_df <- dplyr::group_by(df, condition, subject)
+
+    result <- as_data_list(grouped_df)
+
+    expect_length(result, 4)
+    expect_named(result, c("rest_S1", "rest_S2", "active_S1", "active_S2"))
+})
+
+test_that("as_data_list errors on invalid input", {
+    expect_error(
+        as_data_list("not a data frame"),
+        "must be a list of data frames"
+    )
+
+    expect_error(
+        as_data_list(list(data.frame(x = 1), "not a df")),
+        "must be a list of data frames"
+    )
+
+    expect_error(
+        as_data_list(list(1, 2, 3)),
+        "must be a list of data frames"
+    )
+})
+
+test_that("as_data_list errors when dplyr is unavailable for grouped input", {
+    skip_if_not_installed("dplyr")
+
+    df <- data.frame(x = 1:4, grp = c("A", "A", "B", "B"))
+    grouped <- dplyr::group_by(df, grp)
+
+    with_mocked_bindings(
+        requireNamespace = function(pkg, ...) FALSE,
+        .package = "base",
+        expect_error(as_data_list(grouped), "dplyr.*required for grouped")
+    )
+})
+
+test_that("as_data_list preserves mnirs attributes", {
+    df <- create_mnirs_data(
+        data.frame(t = 1:5, x = rnorm(5)),
+        nirs_channels = "x",
+        time_channel = "t"
+    )
+
+    result <- as_data_list(df)
+
+    expect_s3_class(result[[1]], "mnirs")
+    expect_equal(attr(result[[1]], "nirs_channels"), "x")
+    expect_equal(attr(result[[1]], "time_channel"), "t")
+})
+
+test_that("as_data_list preserves attributes in grouped split", {
+    skip_if_not_installed("dplyr")
+
+    df <- data.frame(
+        t = rep(1:5, 2),
+        x = rnorm(10),
+        group = rep(c("B", "A"), each = 5)
+    )
+    df <- create_mnirs_data(
+        df,
+        nirs_channels = "x",
+        time_channel = "t",
+        sample_rate = 10
+    )
+    # attributes(df)
+    grouped_df <- dplyr::group_by(df, group)
+
+    result <- as_data_list(grouped_df)
+
+    expect_equal(attr(result[[1]], "nirs_channels"), "x")
+    expect_equal(attr(result[[1]], "time_channel"), "t")
+    expect_equal(attr(result[[1]], "sample_rate"), 10)
+    expect_equal(attr(result[[2]], "nirs_channels"), "x")
+    expect_equal(attr(result[[2]], "time_channel"), "t")
+    expect_equal(attr(result[[2]], "sample_rate"), 10)
+})
+
+
+## build_na_results ====================================================
+test_that("build_na_results returns correct 4-element fit list", {
+    na_coefs <- data.frame(
+        slope = NA_real_,
+        intercept = NA_real_
+    )
+
+    result <- build_na_results(na_coefs)
+
+    expect_type(result, "list")
+    expect_named(result, c("coefs", "model", "fitted_data", "diag"))
+
+    ## coefs returned unchanged (channel/time columns added upstream)
+    expect_identical(result$coefs, na_coefs)
+    expect_true(is.na(result$coefs$slope))
+
+    ## no model for a failed fit
+    expect_null(result$model)
+
+    ## fitted_data has NA placeholders
+    expect_true(is.na(result$fitted_data$window_idx))
+    expect_true(is.na(result$fitted_data$fitted))
+
+    ## diag has all-NA values and zero observations
+    expect_equal(result$diag$n_obs, 0L)
+    expect_true(all(is.na(result$diag$r2)))
+})
+
+
+## analyse_kinetics_channels() ============================================
+## helper: minimal mnirs data with a clear rise-then-fall per channel
+make_channels_data <- function(channels = c("ch1", "ch2")) {
+    n <- 20L
+    x <- c(seq(1, 10, length.out = 10L), seq(9, 1, length.out = 10L))
+    df <- data.frame(time = seq_len(n))
+    for (.ch in channels) {
+        df[[.ch]] <- x
+    }
+    create_mnirs_data(
+        df,
+        nirs_channels = channels,
+        time_channel = "time"
+    )
+}
+
+## helper: per-channel arg list keyed by channel, as resolve_channel_args()
+make_per_channel <- function(channels, ...) {
+    extra <- list(...)
+    setNames(
+        lapply(channels, \(.ch) {
+            c(list(end_window = Inf, direction = "auto"), extra)
+        }),
+        channels
+    )
+}
+
+## helper: trivial fit_fn returning one coefficient per channel
+slope_fit <- function(coef_value = 1.0, time_coef = NULL) {
+    function(x, t, valid, .a, ctx) {
+        x_fit <- x[valid$idx]
+        t_fit <- t[valid$idx]
+        coefs <- data.frame(slope = coef_value)
+        if (!is.null(time_coef)) {
+            coefs$peak_slope_time <- time_coef
+        }
+        list(
+            coefs = coefs,
+            model = structure(list(), class = "lm"),
+            fitted_data = data.frame(
+                window_idx = valid$idx,
+                fitted = x_fit
+            ),
+            diag = compute_diagnostics(x_fit, t_fit, x_fit, n_params = 2L)
+        )
+    }
+}
+
+test_that("analyse_kinetics_channels combines channels correctly", {
+    channels <- c("ch1", "ch2")
+    data <- make_channels_data(channels)
+    per_channel <- make_per_channel(channels)
+
+    result <- analyse_kinetics_channels(
+        data, channels, "time",
+        per_channel, slope_fit(), verbose = FALSE
+    )
+
+    ## coefficient rows are combined, one per channel
+    expect_equal(nrow(result), 2L)
+    expect_equal(result$nirs_channels, channels)
+    expect_equal(attr(result, "time_channel"), "time")
+
+    ## model preserved as named list
+    model <- attr(result, "model")
+    expect_type(model, "list")
+    expect_length(model, 2L)
+    expect_named(model, channels)
+
+    ## fitted_data preserved as named list
+    fitted_data <- attr(result, "fitted_data")
+    expect_type(fitted_data, "list")
+    expect_named(fitted_data, channels)
+
+    ## diagnostics combined, one row per channel
+    diag <- attr(result, "diagnostics")
+    expect_equal(nrow(diag), 2L)
+    expect_equal(diag$nirs_channels, channels)
+
+    ## channel_args combined, one row per channel
+    ca <- attr(result, "channel_args")
+    expect_equal(nrow(ca), 2L)
+    expect_equal(ca$nirs_channels, channels)
+})
+
+test_that("analyse_kinetics_channels sets interval column", {
+    channels <- "ch1"
+    data <- make_channels_data(channels)
+    per_channel <- make_per_channel(channels)
+
+    result <- analyse_kinetics_channels(
+        data, channels, "time",
+        per_channel, slope_fit(), verbose = FALSE,
+        interval_name = "baseline"
+    )
+
+    expect_equal(names(result)[1L], "interval")
+    expect_equal(result$interval, "baseline")
+})
+
+test_that("analyse_kinetics_channels serialises args (NULL to NA, list)", {
+    channels <- "ch1"
+    data <- make_channels_data(channels)
+    ## NULL and list-valued args must collapse into a flat data frame row
+    per_channel <- make_per_channel(
+        channels,
+        width = 10,
+        control = NULL,
+        nls_control = list(maxiter = 100, tol = 1e-5)
+    )
+
+    result <- analyse_kinetics_channels(
+        data, channels, "time",
+        per_channel, slope_fit(), verbose = FALSE
+    )
+
+    ca <- attr(result, "channel_args")
+    expect_equal(nrow(ca), 1L)
+    expect_equal(ca$nirs_channels, "ch1")
+    expect_equal(ca$width, 10)
+    ## NULL collapses to NA
+    expect_true(is.na(ca$control))
+    ## list deparses to a character string
+    expect_type(ca$nls_control, "character")
+    expect_match(ca$nls_control, "maxiter")
+})
+
+test_that("analyse_kinetics_channels records extra_args in channel_args", {
+    channels <- "ch1"
+    data <- make_channels_data(channels)
+    per_channel <- make_per_channel(channels)
+
+    result <- analyse_kinetics_channels(
+        data, channels, "time",
+        per_channel, slope_fit(), verbose = FALSE,
+        extra_args = list(shape = "symmetric")
+    )
+
+    ca <- attr(result, "channel_args")
+    expect_equal(ca$shape, "symmetric")
+})
+
+test_that("analyse_kinetics_channels warns for negative time coefficients", {
+    channels <- c("ch1", "ch2")
+    data <- make_channels_data(channels)
+    per_channel <- make_per_channel(channels)
+
+    expect_warning(
+        result <- analyse_kinetics_channels(
+            data, channels, "time",
+            per_channel, slope_fit(time_coef = -2), verbose = TRUE
+        ),
+        "Negative.*coefficients"
+    )
+
+    expect_equal(result$peak_slope_time, c(-2, -2))
+})
+
+test_that("analyse_kinetics_channels silent for valid coefficients", {
+    channels <- "ch1"
+    data <- make_channels_data(channels)
+    per_channel <- make_per_channel(channels)
+
+    expect_silent(
+        analyse_kinetics_channels(
+            data, channels, "time",
+            per_channel, slope_fit(time_coef = 5), verbose = TRUE
+        )
+    )
+})
+
+test_that("analyse_kinetics_channels returns zero-row warnings when clean", {
+    channels <- "ch1"
+    data <- make_channels_data(channels)
+    per_channel <- make_per_channel(channels)
+
+    result <- analyse_kinetics_channels(
+        data, channels, "time",
+        per_channel, slope_fit(), verbose = FALSE
+    )
+
+    wrn <- attr(result, "warnings")
+    expect_s3_class(wrn, "data.frame")
+    expect_equal(nrow(wrn), 0L)
+    expect_named(wrn, c("interval", "nirs_channels", "type", "message"))
+})
+
+test_that("analyse_kinetics_channels captures fit conditions per channel", {
+    channels <- c("ch1", "ch2")
+    data <- make_channels_data(channels)
+    per_channel <- make_per_channel(channels)
+
+    ## fit errors are pre-caught in fit fns and re-signalled as classed
+    ## warnings via warn_fit_failed(); emulate that path for ch2 only
+    warn_fit <- function(x, t, valid, .a, ctx) {
+        if (ctx$nirs == "ch2") {
+            warn_fit_failed(
+                quote(SSmonoexponential), simpleError("no convergence"),
+                ctx$nirs, "baseline"
+            )
+        }
+        slope_fit()(x, t, valid, .a, ctx)
+    }
+
+    ## verbose = FALSE: console silent, conditions still captured
+    expect_silent(
+        result <- analyse_kinetics_channels(
+            data, channels, "time",
+            per_channel, warn_fit, verbose = FALSE,
+            interval_name = "baseline"
+        )
+    )
+
+    wrn <- attr(result, "warnings")
+    expect_equal(nrow(wrn), 1L)
+    expect_equal(wrn$interval, "baseline")
+    expect_equal(wrn$nirs_channels, "ch2")
+    expect_equal(wrn$type, "error")
+    expect_match(wrn$message, "no convergence")
+
+    ## verbose = TRUE: emitted to console and captured identically
+    expect_warning(
+        result2 <- analyse_kinetics_channels(
+            data, channels, "time",
+            per_channel, warn_fit, verbose = TRUE,
+            interval_name = "baseline"
+        ),
+        "fit failed"
+    )
+    expect_equal(attr(result2, "warnings"), wrn)
+})
+
+test_that("analyse_kinetics_channels captures interval-level warnings", {
+    channels <- "ch1"
+    data <- make_channels_data(channels)
+    per_channel <- make_per_channel(channels)
+
+    ## negative time coefficient warns after the channel loop; captured
+    ## with NA channel and muffled when verbose = FALSE
+    expect_silent(
+        result <- analyse_kinetics_channels(
+            data, channels, "time",
+            per_channel, slope_fit(time_coef = -2), verbose = FALSE,
+            interval_name = "baseline"
+        )
+    )
+
+    wrn <- attr(result, "warnings")
+    expect_equal(nrow(wrn), 1L)
+    expect_equal(wrn$interval, "baseline")
+    expect_true(is.na(wrn$nirs_channels))
+    expect_equal(wrn$type, "warning")
+    expect_match(wrn$message, "Negative")
+})
+
+
+## find_kinetics_idx ==================================================
+test_that("find_kinetics_idx validates inputs", {
+    expect_error(
+        find_kinetics_idx(x = "a", t = 1, end_window = 5),
+        "numeric"
+    )
+    expect_error(
+        find_kinetics_idx(x = 1:5, t = 1:5, end_window = -1),
+        "positive"
+    )
+    expect_silent(find_kinetics_idx(x = 1:5, t = 0:4, end_window = Inf))
+    expect_error(
+        find_kinetics_idx(x = 1:5, t = 1:3, end_window = 5),
+        "equal length"
+    )
+})
+
+test_that("find_kinetics_idx returns a named list", {
+    x <- c(1, 5, 10, 5, 1)
+    t <- seq_along(x)
+    result <- find_kinetics_idx(x, t, end_window = 0)
+    expect_type(result, "list")
+    expect_named(result, c("direction", "extreme", "idx"))
+    expect_equal(result$extreme, 3L)
+    expect_equal(result$idx, seq_len(3L))
+})
+
+test_that("find_kinetics_idx works on edge cases", {
+    ## single element
+    result <- find_kinetics_idx(x = 5, t = 1)
+    expect_equal(result$idx, 1L)
+    expect_null(result$extreme)
+
+    ## all-equal values
+    x <- rep(5, 20)
+    t <- seq_along(x)
+    result <- find_kinetics_idx(x, t)
+    expect_equal(result$idx, seq_along(x))
+    expect_null(result$extreme)
+
+    ## monotonic increasing
+    x <- 1:50
+    t <- seq_along(x)
+    result <- find_kinetics_idx(x, t)
+    expect_equal(result$idx, seq_along(x))
+    expect_null(result$extreme)
+
+    ## monotonic decreasing
+    x <- 50:1
+    t <- seq_along(x)
+    result <- find_kinetics_idx(x, t)
+    expect_equal(result$idx, seq_along(x))
+    expect_null(result$extreme)
+})
+
+test_that("find_kinetics_idx finds peak in rise-then-fall", {
+    ## peak at index 20 (value 20), then decline
+    x <- c(seq(1, 20, length.out = 20), seq(19, 1, length.out = 19))
+    t <- seq_along(x)
+
+    result <- find_kinetics_idx(x, t, end_window = 0)
+    expect_equal(result$idx, seq_len(20L))
+    expect_equal(result$extreme, 20L)
+    expect_equal(x[result$extreme], max(x))
+})
+
+test_that("find_kinetics_idx finds trough in fall-then-rise", {
+    ## trough at index 20 (value 1), then rise
+    x <- c(seq(20, 1, length.out = 20), seq(2, 20, length.out = 19))
+    t <- seq_along(x)
+
+    result <- find_kinetics_idx(x, t, end_window = 0, direction = "negative")
+    expect_equal(result$idx, seq_len(20L))
+    expect_equal(result$extreme, 20L)
+    expect_equal(x[result$extreme], min(x))
+})
+
+test_that("find_kinetics_idx works on irregular t with end_window = 0", {
+    ## peak at index 20 (value 20), then decline
+    x <- c(seq(1, 20, length.out = 20), seq(19, 1, length.out = 19))
+    t <- c(1:10, 10, 10, 13:39)/10
+
+    result <- find_kinetics_idx(x, t, end_window = 0, direction = "positive")
+    expect_equal(result$idx, seq_len(12L))
+    expect_equal(result$extreme, 12L)
+    
+    x <- c(1:10, 10, 10, 13:20, seq(19, 1, length.out = 19))
+    t <- c(1:10, 10, 10, 13:39)/10
+    
+    result <- find_kinetics_idx(x, t, end_window = 0, direction = "positive")
+    expect_equal(result$extreme, 10L)
+})
+
+test_that("find_kinetics_idx propagates auto-detected direction", {
+    ## direction detection logic tested in test-detect_direction.R
+    ## positive net slope => finds peak
+    x_pos <- c(seq(1, 20, length.out = 15), seq(19, 10, length.out = 15))
+    res_pos <- find_kinetics_idx(x_pos, seq_along(x_pos), end_window = 0)
+    expect_equal(res_pos$extreme, 15L)
+    expect_equal(res_pos$direction, "positive")
+
+    ## negative net slope => finds trough
+    x_neg <- c(seq(20, 1, length.out = 15), seq(2, 10, length.out = 15))
+    res_neg <- find_kinetics_idx(x_neg, seq_along(x_neg), end_window = 0)
+    expect_equal(res_neg$extreme, 15L)
+    expect_equal(res_neg$direction, "negative")
+})
+
+test_that("find_kinetics_idx ignores negative t values", {
+    ## peak in negative-t region should be ignored
+    x <- c(20, 20, 0, 1, 2, 10, 9, 8, 7, 6)
+    t <- c(-2, -1, 0, 1, 2,  3, 4, 5, 6, 7)
+
+    result <- find_kinetics_idx(
+        x,
+        t,
+        end_window = 2,
+        direction = "positive"
+    )
+    ## should not find the peak at t <= 0
+    expect_equal(t[result$idx[length(result$idx)]], 5)
+    expect_equal(result$extreme, 6L)
+})
+
+test_that("find_kinetics_idx returns n when all t <= 0", {
+    x <- c(5, 10, 3)
+    t <- c(-3, -2, -1)
+    result <- find_kinetics_idx(x, t, end_window = 1)
+    expect_equal(result$idx, seq_along(x))
+    ## no positive-t samples, so n_valid < 2 for extreme detection
+    expect_null(result$extreme)
+})
+
+test_that("find_kinetics_idx handles invalid values", {
+    x <- c(1, NA, 5, 10, Inf, 6, 4, 3)
+    t <- c(1, 2, NA, 4, NA, 6, 7, 8)
+
+    result <- find_kinetics_idx(
+        x,
+        t,
+        end_window = 3
+    )
+    expect_equal(result$idx, c(1, 4, 6, 7))
+    expect_equal(result$extreme, 4L)
+})
+
+test_that("find_kinetics_idx returns first tie", {
+    ## two equal peaks at indices 5 and 15
+    x <- c(1, 2, 3, 4, 10, 4, 3, 2, 1, 2, 3, 4, 5, 4, 10, 4, 3, 2)
+    t <- seq_along(x)
+    result <- find_kinetics_idx(
+        x,
+        t,
+        end_window = 3,
+        direction = "positive"
+    )
+    ## should find first peak (index 5), not second (index 15)
+    expect_equal(result$idx, seq_len(5L + 3))
+    expect_equal(result$extreme, 5L)
+})
+
+test_that("find_kinetics_idx end_window larger than data range", {
+    x <- c(1, 5, 3, 2)
+    t <- seq_along(x)
+    ## end_window covers entire data range
+    result <- find_kinetics_idx(
+        x,
+        t,
+        end_window = 100,
+        direction = "positive"
+    )
+    expect_equal(result$idx, seq_along(x))
+    expect_equal(result$extreme, 2L)
+})
+
+## build_kinetics_results ===============================================
+
+## helper: minimal mnirs data frame with optional interval_times attr
+make_kinetics_data <- function(
+    n = 10,
+    channels = "smo2",
+    interval_times = NULL,
+    sample_rate = 10
+) {
+    df_data <- data.frame(
+        time = seq_len(n) / sample_rate,
+        setNames(
+            lapply(channels, \(.ch) rnorm(n)),
+            channels
+        )
+    )
+    df_data <- create_mnirs_data(
+        df_data,
+        nirs_channels = channels,
+        time_channel = "time",
+        sample_rate = sample_rate
+    )
+    attr(df_data, "interval_times") <- interval_times
+    return(df_data)
+}
+
+## helper: minimal attributed data frame matching the output of
+## analyse_peak_slope() / analyse_monoexponential() per interval
+make_kinetics_results <- function(
+    interval,
+    channels = "smo2",
+    n = 10,
+    start_time = 0
+) {
+    ## this df immitates output of analyse_peak_slope / analyse_monoexponential
+    df <- data.frame(
+        nirs_channels = rep(channels, 1L),
+        slope = seq_len(length(channels)) * 0.5,
+        interval = interval
+    )
+    attr(df, "time_channel") <- "time"
+    attr(df, "fitted_data") <- setNames(
+        lapply(channels, \(.ch) {
+            data.frame(
+                window_idx = seq_len(n),
+                fitted = seq_len(n) * 0.1
+            )
+        }),
+        channels
+    )
+    attr(df, "model") <- setNames(
+        lapply(channels, \(.ch) structure(list(), class = "lm")),
+        channels
+    )
+    attr(df, "diagnostics") <- data.frame(
+        interval = interval,
+        nirs_channels = channels,
+        r2 = rep(0.9, length(channels)),
+        rmse = rep(0.1, length(channels))
+    )
+    attr(df, "channel_args") <- data.frame(
+        interval = interval,
+        nirs_channels = channels,
+        start_time = rep(start_time, length(channels)),
+        width = rep(10L, length(channels))
+    )
+    return(df)
+}
+
+test_that("build_kinetics_results returns mnirs_kinetics with correct names", {
+    data_list <- list(int1 = make_kinetics_data())
+    result_list <- list(make_kinetics_results("int1"))
+    result <- build_kinetics_results(
+        data_list, result_list,
+        method = "peak_slope",
+        call = NULL
+    )
+
+    expect_s3_class(result, "mnirs_kinetics")
+    expect_named(result, c(
+        "method", "model", "coefficients", "data",
+        "interval_times", "diagnostics", "channel_args", "warnings", "call"
+    ))
+})
+
+test_that("build_kinetics_results falls back to zero-row warnings", {
+    data_list <- list(int1 = make_kinetics_data())
+    ## fixture results carry no warnings attribute
+    result_list <- list(make_kinetics_results("int1"))
+    result <- build_kinetics_results(
+        data_list, result_list,
+        method = "peak_slope",
+        call = NULL
+    )
+
+    expect_equal(nrow(result$warnings), 0L)
+    expect_named(
+        result$warnings,
+        c("interval", "nirs_channels", "type", "message")
+    )
+})
+
+test_that("build_kinetics_results flattens warnings across intervals", {
+    data_list <- list(int1 = make_kinetics_data(), int2 = make_kinetics_data())
+    r1 <- make_kinetics_results("int1")
+    r2 <- make_kinetics_results("int2")
+    attr(r1, "warnings") <- data.frame(
+        interval = "int1", nirs_channels = "ch1",
+        type = "warning", message = "msg1"
+    )
+    attr(r2, "warnings") <- data.frame(
+        interval = "int2", nirs_channels = NA_character_,
+        type = "error", message = "msg2"
+    )
+
+    result <- build_kinetics_results(
+        data_list, list(r1, r2),
+        method = "peak_slope",
+        call = NULL
+    )
+
+    expect_equal(result$warnings$interval, c("int1", "int2"))
+    expect_equal(result$warnings$type, c("warning", "error"))
+})
+
+test_that("build_kinetics_results stores method and call", {
+    data_list <- list(int1 = make_kinetics_data())
+    result_list <- list(make_kinetics_results("int1"))
+    fake_call <- quote(analyse_kinetics(data, method = "peak_slope"))
+
+    result <- build_kinetics_results(
+        data_list, result_list,
+        method = "peak_slope",
+        call = fake_call
+    )
+
+    expect_equal(result$method, "peak_slope")
+    expect_equal(result$call, fake_call)
+})
+
+test_that("build_kinetics_results places interval as first column of coefficients", {
+    data_list <- list(A = make_kinetics_data(), B = make_kinetics_data())
+    result_list <- list(make_kinetics_results("A"), make_kinetics_results("B"))
+
+    result <- build_kinetics_results(
+        data_list, result_list,
+        method = "peak_slope",
+        call = NULL
+    )
+
+    expect_equal(names(result$coefficients)[1L], "interval")
+    expect_equal(nrow(result$coefficients), 2L)
+    expect_equal(result$coefficients$interval, c("A", "B"))
+})
+
+test_that("build_kinetics_results adds _fitted columns to data elements", {
+    data_list <- list(int1 = make_kinetics_data(n = 10))
+    result_list <- list(make_kinetics_results("int1", n = 10))
+
+    result <- build_kinetics_results(
+        data_list, result_list,
+        method = "peak_slope",
+        call = NULL
+    )
+
+    aug <- result$data[["int1"]]
+    expect_true("smo2_fitted" %in% names(aug))
+    expect_equal(length(aug$smo2_fitted), 10L)
+})
+
+test_that("build_kinetics_results fitted values placed at correct indices", {
+    n <- 10
+    data_list <- list(int1 = make_kinetics_data(n = n))
+    r <- make_kinetics_results("int1", n = n)
+    ## override fitted_data to only cover rows 3:7
+    attr(r, "fitted_data") <- list(
+        smo2 = data.frame(window_idx = 3:7, fitted = seq(0.3, 0.7, by = 0.1))
+    )
+    result_list <- list(r)
+
+    result <- build_kinetics_results(
+        data_list, result_list,
+        method = "peak_slope",
+        call = NULL
+    )
+
+    fitted_vec <- result$data[["int1"]]$smo2_fitted
+    expect_true(all(is.na(fitted_vec[c(1, 2, 8, 9, 10)])))
+    expect_equal(fitted_vec[3:7], seq(0.3, 0.7, by = 0.1))
+})
+
+test_that("build_kinetics_results data elements preserve mnirs metadata", {
+    data_list <- list(int1 = make_kinetics_data(sample_rate = 10))
+    result_list <- list(make_kinetics_results("int1"))
+
+    result <- build_kinetics_results(
+        data_list,
+        result_list,
+        method = "peak_slope",
+        call = NULL
+    )
+
+    aug <- result$data[["int1"]]
+    expect_s3_class(aug, "mnirs")
+    expect_equal(attr(aug, "nirs_channels"), "smo2")
+    expect_equal(attr(aug, "time_channel"), "time")
+    expect_equal(attr(aug, "sample_rate"), 10)
+})
+
+test_that("build_kinetics_results data list has class = mnirs", {
+    data_list <- list(
+        int1 = make_kinetics_data(sample_rate = 10),
+        int2 = make_kinetics_data(sample_rate = 10)
+    )
+    result_list <- list(
+        make_kinetics_results("int1"),
+        make_kinetics_results("int2")
+    )
+
+    result <- build_kinetics_results(
+        data_list,
+        result_list,
+        method = "peak_slope",
+        call = NULL
+    )
+    
+    expect_type(result$data, "list")
+    expect_s3_class(result$data, "mnirs")
+    expect_length(result$data, 2)
+
+    ## visual check
+    p <- plot(result$data)
+    expect_s3_class(p, "ggplot")
+
+    ## facet wrap present for multi-element list
+    facet_layers <- Filter(\(l) inherits(l, "FacetWrap"), list(p$facet))
+    expect_length(facet_layers, 1)
+
+    ## renders without error
+    expect_no_error(ggplot2::ggplot_build(p))
+})
+
+test_that("build_kinetics_results data is named by interval_names", {
+    data_list <- list(
+        baseline = make_kinetics_data(),
+        exercise = make_kinetics_data()
+    )
+    result_list <- list(
+        make_kinetics_results("baseline"),
+        make_kinetics_results("exercise")
+    )
+
+    result <- build_kinetics_results(
+        data_list, result_list,
+        method = "peak_slope",
+        call = NULL
+    )
+
+    expect_named(result$data, c("baseline", "exercise"))
+    expect_length(result$data, 2L)
+})
+
+test_that("build_kinetics_results model list is named by interval_names", {
+    data_list <- list(
+        A = make_kinetics_data(),
+        B = make_kinetics_data()
+    )
+    result_list <- list(
+        make_kinetics_results("A"),
+        make_kinetics_results("B")
+    )
+
+    result <- build_kinetics_results(
+        data_list, result_list,
+        method = "peak_slope",
+        call = NULL
+    )
+
+    expect_named(result$model, c("A", "B"))
+    expect_type(result$model, "list")
+})
+
+test_that("build_kinetics_results interval_times scalar numeric", {
+    data_list <- list(
+        baseline = make_kinetics_data(interval_times = 1.5),
+        exercise = make_kinetics_data(interval_times = 3.0)
+    )
+    result_list <- list(
+        make_kinetics_results("baseline", start_time = 1.5),
+        make_kinetics_results("exercise", start_time = 3.0)
+    )
+
+    result <- build_kinetics_results(
+        data_list, result_list,
+        method = "peak_slope",
+        call = NULL
+    )
+
+    et <- result$interval_times
+    expect_s3_class(et, "data.frame")
+    expect_equal(nrow(et), 2L)
+    expect_equal(et$interval, c("baseline", "exercise"))
+    expect_type(et$start_times, "double")
+    ## start_times holds the resolved fit onset (from channel_args)
+    expect_equal(et$start_times, c(1.5, 3.0))
+    expect_false("end_times" %in% names(et))
+})
+
+test_that("build_kinetics_results interval_times splits start/end (ensemble)", {
+    data_list <- list(
+        ensemble = make_kinetics_data(interval_times = list(368, 1093))
+    )
+    result_list <- list(make_kinetics_results("ensemble", start_time = 368))
+
+    result <- build_kinetics_results(
+        data_list, result_list,
+        method = "peak_slope",
+        call = NULL
+    )
+
+    et <- result$interval_times
+    expect_equal(nrow(et), 1L)
+    expect_type(et$start_times, "double")
+    expect_type(et$end_times, "double")
+    ## start_times from channel_args; end_times from interval_times metadata
+    expect_equal(et$start_times, 368)
+    expect_equal(et$end_times, 1093)
+})
+
+test_that("build_kinetics_results interval_times uses resolved start when metadata NULL", {
+    data_list <- list(int1 = make_kinetics_data(interval_times = NULL))
+    result_list <- list(make_kinetics_results("int1", start_time = 0))
+
+    result <- build_kinetics_results(
+        data_list, result_list,
+        method = "peak_slope",
+        call = NULL
+    )
+
+    et <- result$interval_times
+    expect_equal(nrow(et), 1L)
+    expect_type(et$start_times, "double")
+    ## start_times is the resolved fit onset, even without metadata
+    expect_equal(et$start_times, 0)
+    expect_false("end_times" %in% names(et))
+})
+
+test_that("build_kinetics_results diagnostics has interval col and correct rows", {
+    data_list <- list(A = make_kinetics_data(), B = make_kinetics_data())
+    result_list <- list(make_kinetics_results("A"), make_kinetics_results("B"))
+
+    result <- build_kinetics_results(
+        data_list, result_list,
+        method = "peak_slope",
+        call = NULL
+    )
+
+    diag <- result$diagnostics
+    expect_equal(names(diag)[1L], "interval")
+    expect_equal(nrow(diag), 2L)
+    expect_equal(diag$interval, c("A", "B"))
+})
+
+test_that("build_kinetics_results channel_args has interval col and correct rows", {
+    data_list <- list(A = make_kinetics_data(), B = make_kinetics_data())
+    result_list <- list(make_kinetics_results("A"), make_kinetics_results("B"))
+
+    result <- build_kinetics_results(
+        data_list, result_list,
+        method = "peak_slope",
+        call = NULL
+    )
+
+    ca <- result$channel_args
+    expect_equal(names(ca)[1L], "interval")
+    expect_equal(nrow(ca), 2L)
+    expect_equal(ca$interval, c("A", "B"))
+})
+
+test_that("build_kinetics_results tags attrs per row with uneven channels", {
+    ## interval A has 1 channel, B has 2 — attr rows must align per interval,
+    ## not by recycling a length-2 interval vector across 3 rows
+    data_list <- list(
+        A = make_kinetics_data(),
+        B = make_kinetics_data(channels = c("smo2_left", "smo2_right"))
+    )
+    result_list <- list(
+        make_kinetics_results("A"),
+        make_kinetics_results("B", channels = c("smo2_left", "smo2_right"))
+    )
+
+    result <- build_kinetics_results(
+        data_list, result_list,
+        method = "peak_slope",
+        call = NULL
+    )
+
+    expect_equal(result$diagnostics$interval, c("A", "B", "B"))
+    expect_equal(result$channel_args$interval, c("A", "B", "B"))
+    expect_equal(result$coefficients$interval, c("A", "B", "B"))
+})
+
+test_that("build_kinetics_results handles multiple channels per interval", {
+    channels <- c("smo2_left", "smo2_right")
+    data_list <- list(int1 = make_kinetics_data(channels = channels))
+    result_list <- list(make_kinetics_results("int1", channels = channels))
+
+    result <- build_kinetics_results(
+        data_list, result_list,
+        method = "peak_slope",
+        call = NULL
+    )
+
+    aug <- result$data[["int1"]]
+    expect_true(all(paste0(channels, "_fitted") %in% names(aug)))
+    expect_equal(nrow(result$coefficients), 2L)
+    expect_equal(result$coefficients$nirs_channels, channels)
+})
+
+
+## analyse_kinetics ======================================================
+## helper to create test mnirs data
+create_kinetics_data <- function(
+    n = 50,
+    sample_rate = 10,
+    channels = c("smo2_left", "smo2_right")
+) {
+    ## seed so `interval_times = sample(t, 1)` is reproducible
+    set.seed(13)
+    t <- seq(0, (n - 1) / sample_rate, length.out = n)
+    df <- data.frame(
+        time = t,
+        smo2_left = sin(t) * 10 + 50,
+        smo2_right = cos(t) * 10 + 50
+    )
+    create_mnirs_data(
+        df,
+        nirs_channels = channels,
+        time_channel = "time",
+        sample_rate = sample_rate,
+        interval_times = sample(t, 1)
+    )
+}
+
+test_that("analyse_kinetics returns mnirs_kinetics object", {
+    data <- create_kinetics_data()
+
+    result <- analyse_kinetics(
+        data,
+        nirs_channels = "smo2_left",
+        method = "peak_slope",
+        width = 5,
+        verbose = FALSE
+    )
+
+    expect_s3_class(result, "mnirs_kinetics")
+    expect_equal(result$method, "peak_slope")
+})
+
+test_that("analyse_kinetics captures call", {
+    data <- create_kinetics_data()
+
+    result <- analyse_kinetics(
+        data,
+        nirs_channels = "smo2_left",
+        method = "peak_slope",
+        width = 5,
+        verbose = FALSE
+    )
+
+    expect_true(!is.null(result$call))
+    expect_equal(class(result$call), "call")
+})
+
+
+test_that("analyse_kinetics works with data formats", {
+    df1 <- create_kinetics_data()
+    df2 <- create_kinetics_data()
+
+    ## named lists
+    result <- analyse_kinetics(
+        list(A = df1, B = df2),
+        nirs_channels = "smo2_left",
+        method = "peak_slope",
+        width = 5,
+        verbose = FALSE
+    )
+
+    expect_equal(nrow(result$coefficients), 2L)
+    expect_equal(result$coefficients$interval, c("A", "B"))
+    expect_length(result$data, 2L)
+    expect_named(result$data, c("A", "B"))
+
+    ## unnamed lists
+    result <- analyse_kinetics(
+        list(df1, df2),
+        nirs_channels = "smo2_left",
+        method = "peak_slope",
+        width = 5,
+        verbose = FALSE
+    )
+
+    expect_equal(nrow(result$coefficients), 2L)
+    expect_equal(result$coefficients$interval, c("interval_1", "interval_2"))
+
+    ## single df
+    result <- analyse_kinetics(
+        df1,
+        nirs_channels = "smo2_left",
+        method = "peak_slope",
+        width = 5,
+        verbose = FALSE
+    )
+
+    expect_equal(nrow(result$coefficients), 1L)
+    expect_equal(result$coefficients$interval, "interval_1")
+    expect_length(result$data, 1L)
+})
+
+
+## group_intervals ====================================================
+test_that("analyse_kinetics group_intervals = 'ensemble' matches default", {
+    data <- create_kinetics_data(n = 20)
+
+    result <- analyse_kinetics(
+        data,
+        nirs_channels = "smo2_left",
+        method = "peak_slope",
+        width = 3,
+        verbose = FALSE
+    )
+    result_ens <- analyse_kinetics(
+        data,
+        nirs_channels = "smo2_left",
+        method = "peak_slope",
+        group_intervals = "ensemble",
+        width = 3,
+        verbose = FALSE
+    )
+
+    expect_equal(result_ens$coefficients, result$coefficients)
+    expect_equal(result_ens$data, result$data)
+})
+
+test_that("analyse_kinetics group_intervals splits rows into named intervals", {
+    data <- create_kinetics_data(n = 20)
+
+    result <- analyse_kinetics(
+        data,
+        nirs_channels = c("smo2_left", "smo2_right"),
+        method = "peak_slope",
+        group_intervals = list(trial1 = 1:10, trial2 = 11:20),
+        width = 3,
+        verbose = FALSE
+    )
+
+    expect_equal(unique(result$coefficients$interval), c("trial1", "trial2"))
+    expect_equal(nrow(result$coefficients), 4L)
+    expect_named(result$data, c("trial1", "trial2"))
+    expect_equal(nrow(result$data$trial1), 10L)
+    expect_equal(result$data$trial2$time, data$time[11:20])
+    expect_s3_class(result$data$trial1, "mnirs")
+    expect_equal(attr(result$data$trial1, "sample_rate"), 10)
+})
+
+test_that("analyse_kinetics zero_time rebases each group_intervals group", {
+    data <- create_kinetics_data(n = 20)
+
+    result <- analyse_kinetics(
+        data,
+        nirs_channels = "smo2_left",
+        method = "peak_slope",
+        group_intervals = list(trial1 = 1:10, trial2 = 11:20),
+        zero_time = TRUE,
+        width = 3,
+        verbose = FALSE
+    )
+
+    expect_equal(result$data$trial2$time, data$time[11:20] - data$time[11])
+    expect_equal(result$interval_times$start_times, c(0, 0))
+})
+
+test_that("analyse_kinetics zero_time shifts ensemble interval_times metadata", {
+    t <- seq(-2, 8, by = 0.1)
+    df <- create_mnirs_data(
+        data.frame(time = t + 100, smo2 = 50 + 10 * (1 - exp(-pmax(t, 0)))),
+        nirs_channels = "smo2",
+        time_channel = "time",
+        sample_rate = 10,
+        interval_times = c(100, 108)
+    )
+
+    original <- analyse_kinetics(df, method = "response_time", verbose = FALSE)
+    rebased <- analyse_kinetics(
+        df,
+        method = "response_time",
+        zero_time = TRUE,
+        verbose = TRUE
+    )
+
+    ## default leaves original time frame
+    expect_equal(original$data[[1]]$time[1], 98)
+    expect_equal(original$interval_times$start_times, 100)
+
+    ## rebased time starts at 0; metadata start/end shift by the same offset
+    expect_equal(rebased$data[[1]]$time[1], 0)
+    expect_equal(rebased$interval_times$start_times, 2)
+    expect_equal(rebased$interval_times$end_times, 10)
+    expect_equal(
+        rebased$coefficients$response_time,
+        original$coefficients$response_time
+    )
+})
+
+test_that("analyse_kinetics group_intervals names unnamed groups interval_<n>", {
+    data <- create_kinetics_data(n = 20)
+
+    result <- analyse_kinetics(
+        data,
+        nirs_channels = "smo2_left",
+        method = "peak_slope",
+        group_intervals = list(1:10, 11:20),
+        width = 3,
+        verbose = FALSE
+    )
+    expect_equal(result$coefficients$interval, c("interval_1", "interval_2"))
+
+    result <- analyse_kinetics(
+        data,
+        nirs_channels = "smo2_left",
+        method = "peak_slope",
+        group_intervals = list(1:10, late = 11:20),
+        width = 3,
+        verbose = FALSE
+    )
+    expect_equal(result$coefficients$interval, c("interval_1", "late"))
+})
+
+test_that("analyse_kinetics group_intervals suffixes <group>_<df> for lists", {
+    df1 <- create_kinetics_data(n = 20)
+    df2 <- create_kinetics_data(n = 20)
+
+    result <- analyse_kinetics(
+        list(A = df1, B = df2),
+        nirs_channels = "smo2_left",
+        method = "peak_slope",
+        group_intervals = list(trial1 = 1:10, trial2 = 11:20),
+        width = 3,
+        verbose = FALSE
+    )
+
+    expect_equal(
+        result$coefficients$interval,
+        c("trial1_A", "trial2_A", "trial1_B", "trial2_B")
+    )
+    expect_named(result$data, c("trial1_A", "trial2_A", "trial1_B", "trial2_B"))
+})
+
+test_that("analyse_kinetics group_intervals splits recursive kinetics input", {
+    coefs <- data.frame(
+        interval = paste0("interval_", 1:24),
+        nirs_channels = rep(c("ch1", "ch2"), each = 24),
+        start_time = rep(seq(0, by = 100, length.out = 24), 2),
+        TD = rep(5 + sin(1:24), 2),
+        tau = rep(10 + cos(1:24), 2)
+    )
+    kinetics <- structure(list(coefficients = coefs), class = "mnirs_kinetics")
+
+    result <- analyse_kinetics(
+        kinetics,
+        nirs_channels = "tau",
+        time_channel = "TD",
+        method = "peak_slope",
+        group_intervals = list(trial1 = 1:10, trial2 = 11:20),
+        width = 3,
+        verbose = FALSE
+    )
+
+    ## source channel qualifies the returned channel names, not the intervals
+    expect_equal(
+        result$coefficients$interval,
+        c("trial1", "trial2", "trial1", "trial2")
+    )
+    expect_equal(
+        result$coefficients$nirs_channels,
+        c("ch1_tau", "ch1_tau", "ch2_tau", "ch2_tau")
+    )
+    expect_named(result$data, c("trial1", "trial2", "trial1", "trial2"))
+    expect_equal(nrow(result$data[[2L]]), 10L)
+    ## time-point coef still shifted to absolute time before splitting
+    expect_equal(
+        result$data[[2L]]$TD,
+        coefs$TD[11:20] + coefs$start_time[11:20]
+    )
+
+    ## prefixed channel names carried through the whole returned object
+    expect_equal(result$interval_times$interval, c("trial1", "trial2"))
+    expect_equal(
+        result$diagnostics[c("interval", "nirs_channels")],
+        result$coefficients[c("interval", "nirs_channels")]
+    )
+    expect_equal(
+        result$channel_args[c("interval", "nirs_channels")],
+        result$coefficients[c("interval", "nirs_channels")]
+    )
+    expect_named(result$model, c("trial1", "trial2"))
+    expect_named(result$model$trial1, c("ch1_tau", "ch2_tau"))
+
+    ## analysed coef column, its fitted column, and metadata are prefixed
+    expect_contains(names(result$data[[1L]]), c("ch1_tau", "ch1_tau_fitted"))
+    expect_false("tau" %in% names(result$data[[1L]]))
+    expect_equal(attr(result$data[[1L]], "nirs_channels"), "ch1_tau")
+
+    ## formatted output prints the prefixed channel names
+    expect_output(print(result), "ch1_tau")
+    expect_output(print(result), "ch2_tau")
+})
+
+test_that("analyse_kinetics group_intervals drops uncovered rows with message", {
+    data <- create_kinetics_data(n = 20)
+
+    expect_message(
+        result <- analyse_kinetics(
+            data,
+            nirs_channels = "smo2_left",
+            method = "peak_slope",
+            group_intervals = list(a = 1:8, b = 11:20),
+            width = 3
+        ),
+        "not specified"
+    )
+    expect_equal(nrow(result$data$a), 8L)
+    expect_equal(sum(vapply(result$data, nrow, integer(1))), 18L)
+
+    expect_no_message(analyse_kinetics(
+        data,
+        nirs_channels = "smo2_left",
+        method = "peak_slope",
+        group_intervals = list(a = 1:8, b = 11:20),
+        width = 3,
+        verbose = FALSE
+    ))
+})
+
+test_that("analyse_kinetics group_intervals warns on overlapping rows", {
+    data <- create_kinetics_data(n = 20)
+
+    expect_warning(
+        result <- analyse_kinetics(
+            data,
+            nirs_channels = "smo2_left",
+            method = "peak_slope",
+            group_intervals = list(a = 1:14, b = 11:20),
+            width = 3
+        ),
+        "Duplicates"
+    )
+    expect_equal(nrow(result$data$a), 14L)
+    expect_equal(nrow(result$data$b), 10L)
+
+    expect_no_warning(analyse_kinetics(
+        data,
+        nirs_channels = "smo2_left",
+        method = "peak_slope",
+        group_intervals = list(a = 1:14, b = 11:20),
+        width = 3,
+        verbose = FALSE
+    ))
+})
+
+test_that("analyse_kinetics group_intervals validates input", {
+    data <- create_kinetics_data(n = 20)
+    run <- function(group_intervals) {
+        analyse_kinetics(
+            data,
+            nirs_channels = "smo2_left",
+            method = "peak_slope",
+            group_intervals = group_intervals,
+            width = 3,
+            verbose = FALSE
+        )
+    }
+
+    expect_error(run("distinct"), "must be")
+    expect_error(run(list(1:30)), "out-of-range")
+    expect_error(run(list(a = integer())), "empty group")
+    expect_error(run(list(c(1.5, 2))), "missing integer")
+})
+
+test_that("analyse_kinetics per-interval args key by group_intervals names", {
+    data <- create_kinetics_data(n = 20)
+
+    result <- analyse_kinetics(
+        data,
+        nirs_channels = "smo2_left",
+        method = "peak_slope",
+        group_intervals = list(trial1 = 1:10, trial2 = 11:20),
+        width = list(trial1 = 3, trial2 = 5),
+        verbose = FALSE
+    )
+
+    ca <- result$channel_args
+    expect_equal(ca$width[ca$interval == "trial1"], 3)
+    expect_equal(ca$width[ca$interval == "trial2"], 5)
+    diag <- result$diagnostics
+    expect_equal(diag$n_obs[diag$interval == "trial1"], 3L)
+    expect_equal(diag$n_obs[diag$interval == "trial2"], 5L)
+})
+
+test_that("analyse_kinetics group_intervals drops interval_times metadata", {
+    data <- create_kinetics_data(n = 20)
+    ## onset metadata inside the second group only
+    attr(data, "interval_times") <- data$time[16]
+
+    expect_no_warning(
+        result <- analyse_kinetics(
+            data,
+            nirs_channels = "smo2_left",
+            method = "peak_slope",
+            group_intervals = list(trial1 = 1:10, trial2 = 11:20),
+            width = 3
+        )
+    )
+    expect_null(attr(result$data$trial1, "interval_times"))
+    ## start_time falls back to first non-negative time of each group
+    expect_equal(result$interval_times$start_times, data$time[c(1, 11)])
+    expect_false("end_times" %in% names(result$interval_times))
+})
+
+test_that("analyze_kinetics forwards group_intervals", {
+    data <- create_kinetics_data(n = 20)
+
+    result <- analyze_kinetics(
+        data,
+        nirs_channels = "smo2_left",
+        method = "peak_slope",
+        group_intervals = list(trial1 = 1:10, trial2 = 11:20),
+        width = 3,
+        verbose = FALSE
+    )
+
+    expect_equal(result$coefficients$interval, c("trial1", "trial2"))
+})
+
+
+test_that("analyse_kinetics offsets time-point coefs by start_time recursively", {
+    coefs <- data.frame(
+        interval = c("a", "b", "c", "d"),
+        nirs_channels = "ch1",
+        start_time = c(0, 100, 200, 300),
+        TD = c(5, 6, 7, 8),
+        tau = c(10, 12, 11, 13)
+    )
+    kinetics <- structure(list(coefficients = coefs), class = "mnirs_kinetics")
+    recurse <- function(nirs, time, verbose = FALSE) {
+        rlang::inject(analyse_kinetics(
+            kinetics,
+            nirs_channels = !!nirs,
+            time_channel = !!time,
+            method = "peak_slope",
+            width = 2,
+            verbose = verbose
+        ))
+    }
+
+    ## time-point coef as time_channel: shifted to absolute time in `data`;
+    ## the analysed coef column carries the source channel prefix
+    result <- recurse("tau", "TD")
+    expect_equal(result$data$ch1$TD, coefs$TD + coefs$start_time)
+    expect_equal(result$data$ch1$ch1_tau, coefs$tau)
+
+    ## `start_time` itself and duration coefs are used unchanged
+    result <- recurse("tau", "start_time")
+    expect_equal(result$data$ch1$start_time, coefs$start_time)
+    expect_equal(result$data$ch1$TD, coefs$TD)
+
+    result <- recurse("TD", "tau")
+    expect_equal(result$data$ch1$tau, coefs$tau)
+    expect_equal(result$data$ch1$ch1_TD, coefs$TD)
+
+    ## inform message fires
+    expect_message(recurse("tau", "TD", verbose = TRUE), "absolute time")
+})
+
+
+test_that("analyse_kinetics errors on intervals with < 2 samples", {
+    ## single-row data frame
+    df <- create_mnirs_data(
+        data.frame(t = 1, x = 5),
+        nirs_channels = "x",
+        time_channel = "t"
+    )
+    expect_error(
+        analyse_kinetics(df, method = "peak_slope", width = 2, verbose = FALSE),
+        "at least 2 samples"
+    )
+
+    ## recursive coefs from a single interval yield one row per channel
+    coefs <- data.frame(
+        interval = c("a", "b"),
+        nirs_channels = "ch1",
+        start_time = c(0, 100),
+        TD = c(5, 6),
+        tau = c(10, 12)
+    )
+    recurse <- function(coefs) {
+        analyse_kinetics(
+            structure(list(coefficients = coefs), class = "mnirs_kinetics"),
+            nirs_channels = "tau",
+            time_channel = "TD",
+            method = "peak_slope",
+            width = 2,
+            verbose = FALSE
+        )
+    }
+    expect_error(recurse(coefs[1L, ]), "at least 2 samples")
+
+    ## two samples proceed to fitting
+    expect_no_error(recurse(coefs))
+})
+
+
+test_that("analyse_kinetics errors on invalid method", {
+    data <- create_kinetics_data()
+
+    expect_error(
+        analyse_kinetics(data, method = "nonexistent"),
+        "arg.*should be"
+    )
+})
+
+test_that("analyse_kinetics$data overwrites metadata", {
+    df <- data.frame(
+        time = rep(seq(0, 4.9, by = 0.1), 2),
+        time_alt = rep(seq(0, 4.9, by = 0.1), 2),
+        smo2_left = c(
+            sin(seq(0, 4.9, by = 0.1)) * 10 + 50,
+            cos(seq(0, 4.9, by = 0.1)) * 10 + 50
+        ),
+        smo2_right = c(
+            sin(seq(0, 4.9, by = 0.1)) * 10 + 50,
+            cos(seq(0, 4.9, by = 0.1)) * 10 + 50
+        )
+    )
+    df <- create_mnirs_data(
+        df,
+        nirs_channels = "smo2_left",
+        time_channel = "time",
+        sample_rate = 10,
+        interval_times = sample(df$time, 1L)
+    )
+
+    result <- analyse_kinetics(
+        df,
+        nirs_channels = "smo2_left",
+        method = "peak_slope",
+        width = 5,
+        verbose = FALSE
+    )
+
+    aug <- result$data[[1L]]
+    # attributes(aug)
+    expect_s3_class(aug, "mnirs")
+    expect_equal(attr(aug, "nirs_channels"), "smo2_left")
+    expect_equal(attr(aug, "time_channel"), "time")
+    expect_equal(attr(aug, "sample_rate"), 10)
+    
+    ## additional nirs_channel
+    result <- analyse_kinetics(
+        df,
+        nirs_channels = c("smo2_left", "smo2_right"),
+        time_channel = "time_alt",
+        method = "peak_slope",
+        width = 5,
+        verbose = FALSE
+    )
+    
+    expect_equal(
+        attr(result$data[[1L]], "nirs_channels"),
+        c("smo2_left", "smo2_right")
+    )
+    expect_equal(attr(result$data[[1L]], "time_channel"), "time_alt")
+
+    ## remove nirs_channel
+    df <- create_mnirs_data(
+        df,
+        nirs_channels = c("smo2_left", "smo2_right"),
+        time_channel = "time",
+        sample_rate = 10,
+        interval_times = sample(df$time, 1L)
+    )
+
+    result <- analyse_kinetics(
+        df,
+        nirs_channels = "smo2_right",
+        method = "peak_slope",
+        width = 5,
+        verbose = FALSE
+    )
+
+    expect_equal(attr(result$data[[1L]], "nirs_channels"), "smo2_right")
+})
+
+
+test_that("analyse_kinetics$data preserves mnirs metadata with grouped input", {
+    skip_if_not_installed("dplyr")
+
+    df <- data.frame(
+        time = rep(seq(0, 4.9, by = 0.1), 2),
+        smo2 = c(
+            sin(seq(0, 4.9, by = 0.1)) * 10 + 50,
+            cos(seq(0, 4.9, by = 0.1)) * 10 + 50
+        ),
+        group = rep(c("A", "B"), each = 50)
+    )
+    df <- create_mnirs_data(
+        df,
+        nirs_channels = "smo2",
+        time_channel = "time",
+        sample_rate = 10,
+        interval_times = sample(df$time, 1L)
+    )
+    grouped_df <- dplyr::group_by(df, group)
+
+    result <- analyse_kinetics(
+        grouped_df,
+        nirs_channels = "smo2",
+        method = "peak_slope",
+        width = 5,
+        verbose = FALSE
+    )
+
+    expect_length(result$data, 2L)
+    for (nm in c("A", "B")) {
+        aug <- result$data[[nm]]
+        expect_s3_class(aug, "mnirs")
+        expect_equal(attr(aug, "nirs_channels"), "smo2")
+        expect_equal(attr(aug, "time_channel"), "time")
+        expect_equal(attr(aug, "sample_rate"), 10)
+    }
+})
+
+## analyse_kinetics.response_time ======================================
+## helper to create a deterministic ramp/plateau for response_time tests
+create_response_time_data <- function(
+    n_baseline = 5,
+    n_ramp = 10,
+    n_plateau = 5,
+    A = 0,
+    B = 20,
+    sample_rate = 1,
+    channels = "smo2"
+) {
+    x <- c(
+        rep(A, n_baseline),
+        seq(A, B, length.out = n_ramp),
+        rep(B, n_plateau)
+    )
+    t <- seq_along(x) - n_baseline ## t = 0 at end of baseline
+    df <- setNames(
+        data.frame(t, x),
+        c("time", channels[1])
+    )
+    if (length(channels) > 1) {
+        for (ch in channels[-1]) {
+            df[[ch]] <- x
+        }
+    }
+    create_mnirs_data(
+        df,
+        nirs_channels = channels,
+        time_channel = "time",
+        sample_rate = sample_rate,
+        interval_times = 0
+    )
+}
+
+test_that("analyse_kinetics.response_time forwards response_fraction argument", {
+    data <- create_response_time_data()
+
+    result_25 <- analyse_kinetics(
+        data,
+        nirs_channels = "smo2",
+        method = "response_time",
+        response_fraction = 0.25,
+        direction = "positive",
+        verbose = FALSE
+    )
+    result_50 <- analyse_kinetics(
+        data,
+        nirs_channels = "smo2",
+        method = "response_time",
+        response_fraction = 0.5,
+        direction = "positive",
+        verbose = FALSE
+    )
+
+    ## response_time monotonic in response_fraction
+    expect_lt(
+        result_25$coefficients$response_time,
+        result_50$coefficients$response_time
+    )
+
+    ## fitted = A + (B - A) * response_fraction
+    A <- result_50$coefficients$A
+    B <- result_50$coefficients$B
+    expect_equal(result_25$coefficients$fitted, A + (B - A) * 0.25)
+    expect_equal(result_50$coefficients$fitted, A + (B - A) * 0.5)
+})
+
+test_that("analyse_kinetics.response_time passes direction argument", {
+    data <- create_kinetics_data(n = 100)
+
+    result_pos <- analyse_kinetics(
+        data,
+        nirs_channels = "smo2_left",
+        method = "response_time",
+        direction = "positive",
+        verbose = FALSE
+    )
+    result_neg <- analyse_kinetics(
+        data,
+        nirs_channels = "smo2_left",
+        method = "response_time",
+        direction = "negative",
+        verbose = FALSE
+    )
+
+    expect_gt(result_pos$coefficients$B, result_pos$coefficients$A)
+    expect_lt(result_neg$coefficients$B, result_neg$coefficients$A)
+})
+
+test_that("analyse_kinetics.response_time channel_args override defaults", {
+    data <- create_kinetics_data(n = 100)
+
+    result <- analyse_kinetics(
+        data,
+        nirs_channels = c("smo2_left", "smo2_right"),
+        method = "response_time",
+        direction = list("positive", smo2_right = "negative"),
+        verbose = FALSE
+    )
+
+    ## channel_args records per-channel settings
+    ca <- result$channel_args
+    expect_equal(
+        ca$direction[ca$nirs_channels == "smo2_left"],
+        "positive"
+    )
+    expect_equal(
+        ca$direction[ca$nirs_channels == "smo2_right"],
+        "negative"
+    )
+})
+
+test_that("analyse_kinetics.response_time results have correct columns", {
+    data <- create_response_time_data()
+
+    result <- analyse_kinetics(
+        data,
+        nirs_channels = "smo2",
+        method = "response_time",
+        direction = "positive",
+        verbose = FALSE
+    )
+
+    expected_cols <- c(
+        "interval", "nirs_channels", "A", "B",
+        "response_time", "response_value", "fitted"
+    )
+    expect_true(all(expected_cols %in% names(result$coefficients)))
+})
+
+test_that("analyse_kinetics.response_time handles unreachable response", {
+    data <- create_kinetics_data(n = 100, channels = c("smo2_left"))
+    data <- data[data$time >= 8, ]
+    attr(data, "interval_times") <- 9.3 ## 9.6
+
+    ## visual check
+    # plot(data) +
+    #     ggplot2::geom_vline(xintercept = 9.3)
+
+    expect_no_error(
+        result <- analyse_kinetics(
+            data,
+            nirs_channels = "smo2_left",
+            time_channel = "time",
+            method = "response_time",
+            direction = "positive",
+            verbose = FALSE
+        )
+    )
+    
+    expect_true(is.na(result$coefficients$response_time))
+    expect_true(is.na(result$coefficients$response_value))
+    expect_true(is.na(result$coefficients$fitted))
+
+    ## fitted column exists and is all-finite at baseline/extreme rows,
+    ## NA elsewhere (no error from NA subscripted assignment).
+    fitted_df <- result$data[[1L]]
+    start_time <- result$interval_times$start_times
+    expect_true("smo2_left_fitted" %in% names(fitted_df))
+    expect_false(is.na(fitted_df$smo2_left_fitted[fitted_df$time == start_time]))
+    expect_false(
+        is.na(fitted_df$smo2_left_fitted[which(fitted_df$time == start_time) + 1])
+    )
+})
+
+test_that("analyse_kinetics.response_time dispatches via method aliases", {
+    data <- create_response_time_data()
+    aliases <- c("response time", "HRT", "half_recovery_time", "half time")
+
+    for (alias in aliases) {
+        result <- analyse_kinetics(
+            data,
+            nirs_channels = "smo2",
+            method = alias[1],
+            direction = "positive",
+            verbose = FALSE
+        )
+        expect_equal(result$method, "response_time")
+        expect_true("response_time" %in% names(result$coefficients))
+    }
+})
+
+test_that("analyse_kinetics.response_time respects global verbose option", {
+    old_verbose <- getOption("mnirs.verbose")
+    on.exit(options(mnirs.verbose = old_verbose), add = TRUE)
+
+    data <- tibble(
+        x = c(0, 5, 20, 10, 5, 1, 1, 1, 1, 1),
+        t = seq_along(x)
+    )
+
+    options(mnirs.verbose = TRUE)
+    expect_warning(
+        analyse_kinetics(
+            data,
+            x,
+            t,
+            method = "response_time",
+            direction = "negative"
+        ),
+        "No valid.*negative"
+    )
+
+    ## global option must reach the S3 method when `verbose` is omitted
+    options(mnirs.verbose = FALSE)
+    expect_silent(
+        analyse_kinetics(
+            data,
+            x,
+            t,
+            method = "response_time"
+        )
+    )
+})
+
+
+## analyse_kinetics.peak_slope =========================================
+## structure, data formats, grouped data covered by generic tests above
+
+test_that("analyse_kinetics.peak_slope passes width and span correctly", {
+    data <- create_kinetics_data(
+        channels = "smo2_right",
+        n = 40,
+        sample_rate = 10
+    )
+
+    result_width <- analyse_kinetics(
+        data,
+        nirs_channels = "smo2_right",
+        method = "peak_slope",
+        width = 10,
+        verbose = FALSE
+    )
+
+    result_span <- analyse_kinetics(
+        data,
+        nirs_channels = "smo2_right",
+        method = "peak_slope",
+        span = 1,
+        verbose = FALSE
+    )
+
+    ## both should produce valid results
+    expect_false(is.na(result_width$coefficients$slope))
+    expect_false(is.na(result_span$coefficients$slope))
+    expect_equal(result_width$diagnostics$n_obs, 10)
+    ## span buffer number of samples for start and end inclusive
+    expect_true(
+        all.equal(result_span$diagnostics$n_obs, 10, tolerance = 2, scale = 1)
+    )
+})
+
+test_that("analyse_kinetics.peak_slope respects global verbose option", {
+    data <- create_kinetics_data(n = 40, channels = "smo2_left")
+
+    old_verbose <- getOption("mnirs.verbose")
+    on.exit(options(mnirs.verbose = old_verbose), add = TRUE)
+
+    ## supplying both width and span normally emits a verbose "overrides" hint
+    options(mnirs.verbose = TRUE)
+    expect_message(
+        analyse_kinetics(
+            data,
+            nirs_channels = "smo2_left",
+            method = "peak_slope",
+            direction = "negative",
+            width = 5,
+            span = 1
+        ),
+        "overrides"
+    )
+
+    ## global option must reach the S3 method when `verbose` is omitted
+    options(mnirs.verbose = FALSE)
+    expect_silent(
+        analyse_kinetics(
+            data,
+            nirs_channels = "smo2_left",
+            method = "peak_slope",
+            direction = "negative",
+            width = 5,
+            span = 1
+        )
+    )
+})
+
+test_that("analyse_kinetics.peak_slope passes direction argument", {
+    data <- create_kinetics_data(n = 100)
+
+    result_pos <- analyse_kinetics(
+        data,
+        nirs_channels = "smo2_left",
+        method = "peak_slope",
+        width = 5,
+        direction = "positive",
+        verbose = FALSE
+    )
+
+    result_neg <- analyse_kinetics(
+        data,
+        nirs_channels = "smo2_left",
+        method = "peak_slope",
+        width = 5,
+        direction = "negative",
+        verbose = FALSE
+    )
+
+    expect_gt(result_pos$coefficients$slope, 0)
+    expect_lt(result_neg$coefficients$slope, 0)
+})
+
+test_that("analyse_kinetics.peak_slope channel_args override defaults", {
+    data <- create_kinetics_data(n = 100)
+
+    result <- analyse_kinetics(
+        data,
+        nirs_channels = c("smo2_left", "smo2_right"),
+        method = "peak_slope",
+        width = 5,
+        direction = list("positive", smo2_right = "negative"),
+        verbose = FALSE
+    )
+
+    expect_gt(result$coefficients$slope[1], 0) ## smo2_left positive
+    expect_lt(result$coefficients$slope[2], 0) ## smo2_right negative
+
+    ## channel_args should record per-channel settings
+    ca <- result$channel_args
+    expect_equal(
+        ca$direction[ca$nirs_channels == "smo2_left"],
+        "positive"
+    )
+    expect_equal(
+        ca$direction[ca$nirs_channels == "smo2_right"],
+        "negative"
+    )
+})
+
+test_that("analyse_kinetics.peak_slope results have correct columns", {
+    data <- create_kinetics_data()
+
+    result <- analyse_kinetics(
+        data,
+        nirs_channels = "smo2_left",
+        method = "peak_slope",
+        width = 5,
+        verbose = FALSE
+    )
+
+    expected_cols <- c(
+        "interval", "nirs_channels", "slope", "intercept", 
+        "fitted", "peak_slope_time", "idx"
+    )
+    expect_true(all(expected_cols %in% names(result$coefficients)))
+})
+
+
+## analyse_kinetics.monoexponential ====================================
+## helper: create monoexponential test data with known parameters
+create_monoexp_data <- function(
+    A = 50,
+    B = 80,
+    tau = 5,
+    TD = 5,
+    n = 60,
+    sample_rate = 1,
+    noise_sd = 0.5,
+    channels = "smo2"
+) {
+    set.seed(13)
+    t <- seq(0, (n - 1) / sample_rate, length.out = n)
+    x <- monoexponential(t, A, B, tau, TD) + rnorm(n, 0, noise_sd)
+
+    df <- setNames(
+        data.frame(t, x),
+        c("time", channels[1])
+    )
+    if (length(channels) > 1) {
+        for (ch in channels[-1]) {
+            df[[ch]] <- monoexponential(
+                t,
+                A + 5,
+                B + 5,
+                tau,
+                TD
+            ) +
+                rnorm(n, 0, noise_sd)
+        }
+    }
+
+    create_mnirs_data(
+        df,
+        nirs_channels = channels,
+        time_channel = "time",
+        sample_rate = sample_rate
+    )
+}
+
+
+test_that("analyse_kinetics.monoexponential dispatches multiple channels", {
+    nirs_channels <- c("smo2_left", "smo2_right")
+    data <- create_monoexp_data(channels = nirs_channels)
+
+    result <- analyse_kinetics(
+        data,
+        nirs_channels = nirs_channels,
+        method = "monoexponential",
+        use_TD = FALSE,
+        verbose = FALSE
+    )
+
+    expect_equal(nrow(result$coefficients), 2L)
+    expect_equal(result$coefficients$nirs_channels, nirs_channels)
+    expect_named(
+        result$data[[1]],
+        c("time", nirs_channels, paste0(nirs_channels, "_fitted"))
+    )
+})
+
+test_that("analyse_kinetics.monoexponential uses custom interval name", {
+    ## only 3 observations for a 3-param model
+    data <- create_monoexp_data(n = 3, noise_sd = 0.1)
+
+    expect_warning(
+        result <- analyse_kinetics(
+            data,
+            nirs_channels = "smo2",
+            method = "monoexponential",
+            use_TD = FALSE
+        ),
+        "fit failed for.*smo2.*interval_1" ## call custom interval name
+    )
+
+    expect_true(is.na(result$coefficients$A))
+    expect_true(is.na(result$coefficients$tau))
+    expect_true(is.na(result$coefficients$k))
+})
+
+test_that("analyse_kinetics.monoexponential names only the failing interval", {
+    ## named list: `good` converges, `bad` has too few points to fit
+    data <- list(
+        good = create_monoexp_data(n = 60, noise_sd = 0.5),
+        bad = create_monoexp_data(n = 3, noise_sd = 0.1)
+    )
+
+    msg <- conditionMessage(rlang::catch_cnd(
+        analyse_kinetics(
+            data,
+            nirs_channels = "smo2",
+            method = "monoexponential",
+            use_TD = FALSE
+        ),
+        classes = "warning"
+    ))
+
+    ## warning names the failing interval only, not the converged one
+    expect_match(msg, "fit failed for.*smo2.*bad")
+    expect_no_match(msg, "good")
+})
+
+## analyse_kinetics.exponential_drift ==================================
+## helper: create exponential-drift test data with known parameters; the
+## drift starts at the onset TD - tau * log(1 - drift_fraction) = 36.3
+create_expdrift_data <- function(
+    A = 70,
+    B = 40,
+    tau = 8,
+    slope_B = 0.2,
+    drift_fraction = 0.98,
+    TD = 5,
+    n = 120,
+    sample_rate = 1,
+    noise_sd = 0.3,
+    channels = "smo2",
+    seed = 42
+) {
+    set.seed(seed)
+    t <- seq(0, (n - 1) / sample_rate, length.out = n)
+    x <- exponential_drift(t, A, B, tau, slope_B, drift_fraction, TD) +
+        rnorm(n, 0, noise_sd)
+
+    df <- setNames(
+        data.frame(t, x),
+        c("time", channels[1])
+    )
+    if (length(channels) > 1) {
+        for (ch in channels[-1]) {
+            # fmt: skip
+            df[[ch]] <- exponential_drift(
+                t, A + 5, B + 5, tau, slope_B, drift_fraction, TD
+            ) +
+                rnorm(n, 0, noise_sd)
+        }
+    }
+
+    create_mnirs_data(
+        df,
+        nirs_channels = channels,
+        time_channel = "time",
+        sample_rate = sample_rate
+    )
+}
+
+
+test_that("analyse_kinetics.exponential_drift dispatches to the method", {
+    data <- create_expdrift_data(slope_B = 0.1)
+
+    result <- analyse_kinetics(
+        data,
+        nirs_channels = "smo2",
+        method = "exponential_drift",
+        verbose = TRUE
+    )
+    
+    expect_s3_class(result, "mnirs_kinetics")
+    expect_equal(result$method, "exponential_drift")
+    expect_true(all(
+        c("tau", "MRT", "slope_B", "drift_fraction", "texc", "texc_fitted") %in%
+            names(result$coefficients)
+    ))
+    expect_named(
+        coef(result$model[[1L]]$smo2),
+        c("A", "B", "tau", "slope_B", "TD")
+    )
+})
+
+test_that("analyse_kinetics.exponential_drift dispatches multiple channels", {
+    nirs_channels <- c("smo2_left", "smo2_right")
+    data <- create_expdrift_data(channels = nirs_channels)
+
+    result <- analyse_kinetics(
+        data,
+        nirs_channels = nirs_channels,
+        method = "exponential_drift",
+        verbose = FALSE
+    )
+
+    expect_equal(nrow(result$coefficients), 2L)
+    expect_equal(result$coefficients$nirs_channels, nirs_channels)
+    expect_named(
+        result$data[[1]],
+        c("time", nirs_channels, paste0(nirs_channels, "_fitted"))
+    )
+})
+
+test_that("analyse_kinetics.exponential_drift dispatches via method aliases", {
+    data <- create_expdrift_data()
+    aliases <- c(
+        "exp_drift", "exp linear", "monoexp-drift", "exponential_linear"
+    )
+
+    for (alias in aliases) {
+        result <- analyse_kinetics(
+            data,
+            nirs_channels = "smo2",
+            method = alias,
+            verbose = FALSE
+        )
+        expect_equal(result$method, "exponential_drift")
+    }
+})
+
+test_that("analyse_kinetics.exponential_drift passes use_TD and fix", {
+    data <- create_expdrift_data(TD = 0)
+
+    result <- analyse_kinetics(
+        data,
+        nirs_channels = "smo2",
+        method = "exponential_drift",
+        use_TD = FALSE,
+        fix = list(A = 70)
+    )
+
+    expect_equal(result$coefficients$A, 70)
+    expect_true(is.na(result$coefficients$TD))
+    expect_named(
+        coef(result$model[[1L]]$smo2), c("B", "tau", "slope_B")
+    )
+})
+
+test_that("analyse_kinetics.exponential_drift passes drift_fraction", {
+    data <- create_expdrift_data()
+
+    result <- analyse_kinetics(
+        data,
+        nirs_channels = "smo2",
+        method = "exponential_drift",
+        drift_fraction = 0.85,
+        verbose = FALSE
+    )
+
+    coefs <- result$coefficients
+    expect_false("drift_fraction" %in% names(coef(result$model[[1L]]$smo2)))
+    expect_equal(coefs$drift_fraction, 0.85)
+    ## texc is the turning point past the drift onset
+    expect_gt(coefs$texc, expdrift_onset(coefs$tau, 0.85, coefs$TD))
+})
+
+## analyse_kinetics.sigmoidal ============================================
+## helper: create sigmoidal test data with known parameters
+create_sigmoidal_data <- function(
+    A = 10,
+    B = 100,
+    xmid = 30,
+    slope = 4,
+    asym = NULL,
+    n = 60,
+    sample_rate = 1,
+    noise_sd = 2,
+    channels = "smo2"
+) {
+    set.seed(13)
+    t <- seq(0, (n - 1) / sample_rate, length.out = n)
+    x <- logistic(t, A, B, xmid, slope, asym) + rnorm(n, 0, noise_sd)
+
+    df <- setNames(
+        data.frame(t, x),
+        c("time", channels[1])
+    )
+    if (length(channels) > 1) {
+        for (ch in channels[-1]) {
+            df[[ch]] <- logistic(t, A + 5, B + 5, xmid, slope, asym) +
+                rnorm(n, 0, noise_sd)
+        }
+    }
+
+    create_mnirs_data(
+        df,
+        nirs_channels = channels,
+        time_channel = "time",
+        sample_rate = sample_rate
+    )
+}
+
+
+test_that("analyse_kinetics.sigmoidal dispatches multiple channels", {
+    nirs_channels <- c("smo2_left", "smo2_right")
+    data <- create_sigmoidal_data(channels = nirs_channels)
+
+    result <- analyse_kinetics(
+        data,
+        nirs_channels = nirs_channels,
+        method = "sigmoidal",
+        shape = "symmetric",
+        verbose = FALSE
+    )
+
+    expect_equal(nrow(result$coefficients), 2L)
+    expect_equal(result$coefficients$nirs_channels, nirs_channels)
+    expect_named(
+        result$data[[1]],
+        c("time", nirs_channels, paste0(nirs_channels, "_fitted"))
+    )
+})
+
+test_that("analyse_kinetics.sigmoidal uses custom interval name", {
+    ## only 3 observations for a 4-param model
+    data <- create_sigmoidal_data(n = 10, noise_sd = 0.1)
+
+    expect_warning(
+        result <- analyse_kinetics(
+            data,
+            nirs_channels = "smo2",
+            method = "sigmoidal",
+            shape = "symmetric",
+        ),
+        "fit failed for.*smo2.*interval_1" ## call custom interval name
+    )
+
+    expect_true(is.na(result$coefficients$A))
+    expect_true(is.na(result$coefficients$xmid))
+    expect_true(is.na(result$coefficients$slope))
+})
+
+test_that("analyse_kinetics.sigmoidal names only the failing interval", {
+    ## named list: `good` converges, `bad` has too few points to fit
+    data <- list(
+        good = create_sigmoidal_data(n = 60, noise_sd = 2),
+        bad = create_sigmoidal_data(n = 10, noise_sd = 0.1)
+    )
+
+    msg <- conditionMessage(rlang::catch_cnd(
+        analyse_kinetics(
+            data,
+            nirs_channels = "smo2",
+            method = "sigmoidal",
+            shape = "symmetric"
+        ),
+        classes = "warning"
+    ))
+
+    ## warning names the failing interval only, not the converged one
+    expect_match(msg, "fit failed for.*smo2.*bad")
+    expect_no_match(msg, "good")
+})
+
+## analyze_kinetics (US spelling alias) ================================
+test_that("analyze_kinetics matches analyse_kinetics for peak_slope", {
+    data <- create_kinetics_data()
+
+    result_uk <- analyse_kinetics(
+        data,
+        nirs_channels = "smo2_left",
+        method = "peak_slope",
+        width = 5,
+        verbose = FALSE
+    )
+    result_us <- analyze_kinetics(
+        data,
+        nirs_channels = "smo2_left",
+        method = "peak slope",
+        width = 5,
+        verbose = FALSE
+    )
+
+    expect_s3_class(result_us, "mnirs_kinetics")
+    expect_s3_class(result_uk, "mnirs_kinetics")
+    ## US alias rewrites call to analyse_kinetics(), so full results match
+    expect_equal(result_us, result_uk)
+    expect_equal(result_us$call[[1L]], quote(analyse_kinetics))
+    expect_equal(result_us$call[[4L]], "peak_slope")
+})
+
+test_that("analyze_kinetics forwards method = 'response_time' and response_fraction", {
+    data <- create_response_time_data()
+
+    result <- analyze_kinetics(
+        data,
+        nirs_channels = "smo2",
+        method = "response time",
+        response_fraction = 0.5,
+        direction = "positive",
+        verbose = FALSE
+    )
+
+    expect_s3_class(result, "mnirs_kinetics")
+    expect_equal(result$method, "response_time")
+    expect_equal(result$call[[1L]], quote(analyse_kinetics))
+    expect_equal(result$call[[4L]], "response_time")
+    expect_true("response_time" %in% names(result$coefficients))
+
+    ## response_fraction was forwarded: fitted = A + (B - A) * 0.5
+    A <- result$coefficients$A
+    B <- result$coefficients$B
+    expect_equal(result$coefficients$fitted, A + (B - A) * 0.5)
+})
+
+
+## print.mnirs_kinetics ================================================
+## helper: minimal mnirs_kinetics fixture for print method tests
+make_print_kinetics <- function(coefs, method = "peak_slope") {
+    structure(
+        list(method = method, coefficients = coefs),
+        class = "mnirs_kinetics"
+    )
+}
+
+test_that("print.mnirs_kinetics shows peak_slope header", {
+    x <- make_print_kinetics(
+        data.frame(interval = "int1", nirs_channels = "smo2", slope = 1.5),
+        method = "peak_slope"
+    )
+    output <- capture.output(print(x))
+    expect_true(any(grepl("Peak Linear Response Rate", output)))
+})
+
+test_that("print.mnirs_kinetics shows monoexponential header", {
+    x <- make_print_kinetics(
+        data.frame(interval = "int1", nirs_channels = "smo2", tau = 5.0),
+        method = "monoexponential"
+    )
+    output <- capture.output(print(x))
+    expect_true(any(grepl("Monoexponential One-Phase Kinetics", output)))
+})
+
+test_that("print.mnirs_kinetics shows sigmoidal header", {
+    x <- make_print_kinetics(
+        data.frame(interval = "int1", nirs_channels = "smo2", xmid = 5.0),
+        method = "sigmoidal"
+    )
+    output <- capture.output(print(x))
+    expect_true(any(grepl("Sigmoidal Inflection Kinetics", output)))
+})
+
+test_that("print.mnirs_kinetics shows exponential_drift header", {
+    x <- make_print_kinetics(
+        data.frame(interval = "int1", nirs_channels = "smo2", slope = 0.05),
+        method = "exponential_drift"
+    )
+    output <- capture.output(print(x))
+    expect_true(any(
+        grepl("Exponential-Linear Drift Two-Phase Kinetics", output)
+    ))
+})
+
+test_that("print.mnirs_kinetics shows response_time header", {
+    x <- make_print_kinetics(
+        data.frame(interval = "int1", nirs_channels = "smo2", tau = 5.0),
+        method = "response_time"
+    )
+    output <- capture.output(print(x))
+    expect_true(any(grepl("Fractional Response Time", output)))
+})
+
+test_that("print.mnirs_kinetics always shows Model Coefficients label", {
+    for (m in c("peak_slope", "monoexponential", "response_time")) {
+        x <- make_print_kinetics(
+            data.frame(interval = "int1", nirs_channels = "smo2", slope = 1),
+            method = m
+        )
+        output <- capture.output(print(x))
+        expect_true(
+            any(grepl("Model Coefficients:", output)),
+            info = paste("method =", m)
+        )
+    }
+})
+
+test_that("print.mnirs_kinetics drops 'fitted$' columns from display", {
+    x <- make_print_kinetics(
+        data.frame(
+            interval = "int1",
+            nirs_channels = "smo2",
+            MRT = 4.0,
+            MRT_fitted = 65.0,
+            response_value_fitted = 70.0,
+            fitted = 50,
+            fitted_column = 10
+        ),
+        method = "monoexponential"
+    )
+    output <- capture.output(print(x))
+    expect_false(any(grepl("MRT_fitted", output)))
+    expect_false(any(grepl("response_value_fitted", output)))
+    expect_false(any(grepl("\\bfitted\\b", output)))
+    expect_true(any(grepl("\\bMRT\\b", output)))
+    expect_true(any(grepl("fitted_column", output)))
+})
+
+test_that("print.mnirs_kinetics drops 'start_time' only when all zero", {
+    coefs <- data.frame(
+        interval = c("int1", "int2"),
+        nirs_channels = "smo2",
+        start_time = c(0, 0),
+        slope = c(1.5, 2.0)
+    )
+    output <- capture.output(print(make_print_kinetics(coefs)))
+    expect_false(any(grepl("start_time", output)))
+
+    coefs$start_time <- c(0, 30)
+    output <- capture.output(print(make_print_kinetics(coefs)))
+    expect_true(any(grepl("start_time", output)))
+})
+
+test_that("print.mnirs_kinetics formats numerics to 4 sig figs", {
+    x <- make_print_kinetics(
+        data.frame(
+            interval = "int1",
+            nirs_channels = "smo2",
+            slope = 1.234567
+        )
+    )
+    output <- capture.output(print(x))
+    expect_true(any(grepl("1.235", output, fixed = TRUE)))
+    expect_false(any(grepl("1.234567", output, fixed = TRUE)))
+})
+
+test_that("print.mnirs_kinetics renders NA values as 'NA'", {
+    x <- make_print_kinetics(
+        data.frame(
+            interval = c("int1", "int2"),
+            nirs_channels = c("smo2", "smo2"),
+            slope = c(1.234, NA_real_)
+        )
+    )
+    output <- capture.output(print(x))
+    expect_true(any(grepl("\\bNA\\b", output)))
+})
+
+test_that("print.mnirs_kinetics handles all-NA numeric columns", {
+    x <- make_print_kinetics(
+        data.frame(
+            interval = "int1",
+            nirs_channels = "smo2",
+            slope = 1.5,
+            intercept = NA_real_
+        )
+    )
+    expect_no_error(output <- capture.output(print(x)))
+    expect_true(any(grepl("intercept", output)))
+})
+
+test_that("print.mnirs_kinetics prints all rows when nrow <= 10", {
+    coefs <- data.frame(
+        interval = paste0("int", 1:10),
+        nirs_channels = "smo2",
+        slope = seq(0.1, 1.0, by = 0.1)
+    )
+    x <- make_print_kinetics(coefs)
+    output <- capture.output(print(x))
+    expect_false(any(grepl("rows omitted", output)))
+    ## every interval label should appear in output
+    for (lab in coefs$interval) {
+        expect_true(
+            any(grepl(lab, output)),
+            info = paste("missing:", lab)
+        )
+    }
+})
+
+test_that("print.mnirs_kinetics truncates when nrow > 10", {
+    coefs <- data.frame(
+        interval = paste0("int", sprintf("%02d", 1:15)),
+        nirs_channels = "smo2",
+        slope = seq(0.1, 1.5, by = 0.1)
+    )
+    x <- make_print_kinetics(coefs)
+    output <- capture.output(print(x))
+
+    ## spacer reports omitted count
+    expect_true(any(grepl("--- 5 rows omitted", output, fixed = TRUE)))
+
+    ## first 5 and last 5 intervals appear
+    for (lab in coefs$interval[c(1:5, 11:15)]) {
+        expect_true(
+            any(grepl(lab, output)),
+            info = paste("missing:", lab)
+        )
+    }
+    ## middle rows do not appear
+    for (lab in coefs$interval[6:10]) {
+        expect_false(
+            any(grepl(lab, output)),
+            info = paste("unexpected:", lab)
+        )
+    }
+})
+
+
+## self-start helpers ==================================================
+test_that("solve_grid3() matches lm.fit at every grid point", {
+    set.seed(5)
+    n <- 50
+    G <- 7
+    x <- rnorm(n)
+    ## three random bases per grid point
+    C1 <- matrix(rnorm(n * G), n, G)
+    C2 <- matrix(rnorm(n * G), n, G)
+    C3 <- matrix(rnorm(n * G), n, G)
+    fit <- solve_grid3(
+        g11 = colSums(C1 * C1), g12 = colSums(C1 * C2), g13 = colSums(C1 * C3),
+        g22 = colSums(C2 * C2), g23 = colSums(C2 * C3), g33 = colSums(C3 * C3),
+        b1 = colSums(C1 * x), b2 = colSums(C2 * x), b3 = colSums(C3 * x),
+        xx = sum(x^2)
+    )
+    ref <- vapply(seq_len(G), \(.g) {
+        f <- lm.fit(cbind(C1[, .g], C2[, .g], C3[, .g]), x)
+        c(f$coefficients, sum(f$residuals^2))
+    }, numeric(4L))
+    expect_equal(fit$c1, ref[1L, ], tolerance = 1e-8)
+    expect_equal(fit$c2, ref[2L, ], tolerance = 1e-8)
+    expect_equal(fit$c3, ref[3L, ], tolerance = 1e-8)
+    expect_equal(fit$rss, ref[4L, ], tolerance = 1e-8)
+
+    ## a singular system is flagged rather than propagated
+    sing <- solve_grid3(1, 1, 1, 1, 1, 1, 1, 1, 1, 1)
+    expect_identical(sing$rss, Inf)
+})
+
+test_that("free_params() classifies bare symbols as free", {
+    mCall <- quote(f(t = time, A = A, B = 5, tau = tau, TD = TD + 1))
+    expect_identical(free_params(mCall, c("A", "B", "tau", "TD")), c("A", "tau"))
+    ## absent parameters are not free
+    expect_identical(free_params(mCall, c("A", "Q")), "A")
+})
+
+test_that("accept_port_fit() drops a non-converged fit failing acceptance", {
+    stall <- list(convInfo = list(isConv = FALSE, stopCode = 10L))
+    expect_identical(
+        accept_port_fit(stall, \(e) e, ok = FALSE),
+        simpleError("Iteration limit reached without convergence.")
+    )
+})
+
+test_that("fit_td_fallback() retries the reduced model from the onset", {
+    attempts <- list()
+    fit <- suppressWarnings(fit_td_fallback(
+        x_fit = 1:10,
+        t_fit = -4:5,
+        params = c("A", "B", "tau", "TD"),
+        .a = list(use_TD = TRUE, fix = list()),
+        fitter = \(.data, .params, on_error) {
+            attempts[[length(attempts) + 1L]] <<- .data
+            on_error(simpleError("no convergence"))
+        },
+        fn = quote(SSmonoexponential),
+        ctx = list(nirs = "smo2", time_channel = "time", interval_name = "test", env = environment())
+    ))
+    expect_null(fit$model)
+    ## the TD attempt sees the pre-onset baseline, the reduced one does not
+    expect_length(attempts, 2L)
+    expect_named(attempts[[1L]], c("smo2", "time"))
+    expect_equal(nrow(attempts[[1L]]), 10L)
+    expect_equal(attempts[[2L]]$time, 0:5)
+    expect_equal(fit$params, c("A", "B", "tau"))
+})
+
+test_that("enforce_direction() uses the self-start gradient on the D refit", {
+    t <- seq(0, 119)
+    x <- monoexponential(t, A = 50, B = 80, tau = 25)
+    fit_data <- data.frame(.x = x, .t = t)
+    coefs <- c(A = 50, B = 20, tau = 25)
+
+    result <- enforce_direction(
+        model = NULL,
+        coefs = coefs,
+        fit_data = fit_data,
+        direction = "positive",
+        amp_fn = quote(SSmonoexponential),
+        lower = c(tau = 1e-4),
+        .nirs = "smo2",
+        interval_name = "test"
+    )
+
+    expect_named(coef(result$model), c("A", "B", "tau"))
+    expect_equal(result$coefs[["A"]], 50, tolerance = 1e-3)
+    expect_equal(result$coefs[["B"]], 80, tolerance = 1e-3)
+
+    ## fixed asymptote paths
+    result_A <- enforce_direction(
+        model = NULL,
+        coefs = coefs,
+        fit_data = fit_data,
+        direction = "positive",
+        amp_fn = quote(SSmonoexponential),
+        lower = c(tau = 1e-4),
+        fix = list(A = 50),
+        .nirs = "smo2",
+        interval_name = "test"
+    )
+    expect_named(coef(result_A$model), c("B", "tau"))
+    expect_equal(result_A$coefs[["B"]], 80, tolerance = 1e-3)
+
+    result_B <- enforce_direction(
+        model = NULL,
+        coefs = coefs,
+        fit_data = fit_data,
+        direction = "positive",
+        amp_fn = quote(SSmonoexponential),
+        lower = c(tau = 1e-4),
+        fix = list(B = 80),
+        .nirs = "smo2",
+        interval_name = "test"
+    )
+    expect_named(coef(result_B$model), c("A", "tau"))
+    expect_equal(result_B$coefs[["A"]], 50, tolerance = 1e-3)
+    ## refit models carry the fit data in the call
+    expect_s3_class(eval(result_B$model$call$data, baseenv()), "data.frame")
+})
+
+
+## integration =======================================================
+test_that("analyse_kinetics respects end_window on extracted intervals", {
+    ## regression: absolute interval time reached find_kinetics_idx, so
+    ## end_window truncated the fitting window to the pre-onset baseline
+    ## and the monoexponential fit failed
+    data_list <- read_mnirs(
+        example_mnirs("moxy_intervals"),
+        event_channel = "Lap",
+        verbose = FALSE
+    ) |>
+        extract_intervals(
+            start = by_lap(3),
+            span = c(-60, 120),
+            verbose = FALSE
+        )
+
+    expect_no_warning(
+        result <- analyse_kinetics(
+            data_list,
+            method = "monoexp",
+            end_window = 20,
+            verbose = FALSE
+        )
+    )
+    expect_true(all(is.finite(result$coefficients$tau)))
+})
+
+
+test_that("analyse_kinetics works visually on Train.Red", {
+    skip_if_not_installed("ggplot2")
+    skip("visual check")
+
+    data_list <- read_mnirs(
+        example_mnirs("train.red"),
+        nirs_channels = c(smo2_left = "SmO2"),
+        time_channel = c(time = "Timestamp (seconds passed)"),
+        zero_time = TRUE,
+        verbose = FALSE
+    ) |>
+        resample_mnirs(method = "linear", verbose = FALSE) |>
+        extract_intervals(
+            start = by_time(368),
+            span = c(10, 90),
+            zero_time = TRUE,
+            verbose = FALSE
+        )
+
+    result <- analyse_kinetics(data_list, method = "peak_slope", span = 10)
+
+    library(ggplot2)
+    plot(data_list[[1]]) +
+        geom_line(
+            data = result$data[[1]],
+            aes(y = smo2_left_fitted),
+            linewidth = 1.5
+        ) +
+        geom_point(
+            data = result$coefficients,
+            aes(x = time, y = fitted),
+            size = 4,
+            shape = 21,
+            stroke = 1.5,
+            fill = "white"
+        )
+
+    result <- analyse_kinetics(data_list, method = "monoexp", use_TD = TRUE)
+    # result$diagnostics
+    # result$coefficients
+
+    plot(data_list[[1]]) +
+        geom_line(
+            data = result$data[[1]],
+            aes(y = smo2_left_fitted),
+            linewidth = 1.5
+        ) +
+        geom_point(
+            data = result$coefficients,
+            aes(x = MRT, y = MRT_fitted),
+            size = 4,
+            shape = 21,
+            stroke = 1.5,
+            fill = "white"
+        )
+})
+
+
+## resolve_interval_args ==================================================
+test_that("resolve_interval_args peels interval-keyed args", {
+    args <- list(
+        end_window = list(A = 30, B = 60),
+        width = 5,
+        direction = "auto"
+    )
+
+    result <- resolve_interval_args(
+        args, c("A", "B"), chan_names = "smo2", verbose = FALSE
+    )
+
+    expect_named(result, c("A", "B"))
+    expect_equal(result$A$end_window, 30)
+    expect_equal(result$B$end_window, 60)
+    ## global values broadcast unchanged
+    expect_equal(result$A$width, 5)
+    expect_equal(result$B$direction, "auto")
+})
+
+test_that("resolve_interval_args applies unnamed fallback", {
+    args <- list(end_window = list(30, B = 60))
+
+    result <- resolve_interval_args(
+        args, c("A", "B", "C"), character(), verbose = FALSE
+    )
+
+    expect_equal(result$A$end_window, 30)
+    expect_equal(result$B$end_window, 60)
+    expect_equal(result$C$end_window, 30)
+})
+
+test_that("resolve_interval_args omitted interval falls back to NULL", {
+    args <- list(end_window = list(A = 30))
+
+    result <- resolve_interval_args(
+        args, c("A", "B"), character(), verbose = FALSE
+    )
+
+    expect_equal(result$A$end_window, 30)
+    expect_null(result$B$end_window)
+})
+
+test_that("resolve_interval_args channel keys win over interval keys", {
+    ## key matches both an interval and a channel: per-channel meaning kept
+    args <- list(span = list(10, smo2 = 20))
+
+    result <- resolve_interval_args(
+        args, c("smo2", "B"), chan_names = "smo2", verbose = FALSE
+    )
+
+    ## passed through untouched for downstream channel resolution
+    expect_identical(result$smo2$span, list(10, smo2 = 20))
+    expect_identical(result$B$span, list(10, smo2 = 20))
+})
+
+test_that("resolve_interval_args handles fix nesting", {
+    interval_names <- c("A", "B")
+
+    ## plain parameter list stays global, even with keys matching intervals
+    args <- list(fix = list(A = 0))
+    result <- resolve_interval_args(
+        args, interval_names, character(), verbose = FALSE
+    )
+    expect_identical(result$A$fix, list(A = 0))
+    expect_identical(result$B$fix, list(A = 0))
+
+    ## interval-keyed parameter lists peel per interval
+    args <- list(fix = list(A = list(A = 0), B = list(A = 5)))
+    result <- resolve_interval_args(
+        args, interval_names, character(), verbose = FALSE
+    )
+    expect_identical(result$A$fix, list(A = 0))
+    expect_identical(result$B$fix, list(A = 5))
+
+    ## per-interval per-channel map passes each value through intact
+    args <- list(fix = list(A = list(smo2 = list(A = 0))))
+    result <- resolve_interval_args(
+        args, interval_names, character(), verbose = FALSE
+    )
+    expect_identical(result$A$fix, list(smo2 = list(A = 0)))
+    expect_null(result$B$fix)
+})
+
+test_that("resolve_interval_args warns on unknown and omitted intervals", {
+    ## a valid interval key makes this an interval map; the unnamed
+    ## fallback keeps the omitted-interval hint silent, so only the
+    ## unknown-key warning fires. an all-unknown-keys list is not an
+    ## interval map and is left for channel-layer warnings instead
+    expect_warning(
+        resolve_interval_args(
+            list(end_window = list(30, A = 30, typo = 60)),
+            c("A", "B"), character(), verbose = TRUE
+        ),
+        "typo.*not recognised"
+    )
+
+    ## fully named map omitting an interval hints once
+    expect_warning(
+        resolve_interval_args(
+            list(end_window = list(A = 30)),
+            c("A", "B"), character(), verbose = TRUE
+        ),
+        "B.*not specified"
+    )
+})
+
+
+## analyse_kinetics per-interval arguments ================================
+test_that("analyse_kinetics resolves per-interval and nested channel args", {
+    df1 <- create_kinetics_data()
+    df2 <- create_kinetics_data()
+
+    result <- analyse_kinetics(
+        list(A = df1, B = df2),
+        nirs_channels = c("smo2_left", "smo2_right"),
+        method = "response_time",
+        direction = list(
+            A = list(smo2_left = "negative", "positive"),
+            B = "positive"
+        ),
+        end_window = list(A = 2, B = 3),
+        verbose = FALSE
+    )
+
+    ca <- result$channel_args
+    expect_equal(
+        ca$direction[ca$interval == "A" & ca$nirs_channels == "smo2_left"],
+        "negative"
+    )
+    expect_equal(
+        ca$direction[ca$interval == "A" & ca$nirs_channels == "smo2_right"],
+        "positive"
+    )
+    expect_equal(unique(ca$direction[ca$interval == "B"]), "positive")
+    expect_equal(unique(ca$end_window[ca$interval == "A"]), 2)
+    expect_equal(unique(ca$end_window[ca$interval == "B"]), 3)
+})
+
+test_that("analyse_kinetics per-interval args key by group names", {
+    skip_if_not_installed("dplyr")
+
+    df <- data.frame(
+        time = rep(seq(0, 4.9, by = 0.1), 2),
+        smo2 = c(
+            sin(seq(0, 4.9, by = 0.1)) * 10 + 50,
+            cos(seq(0, 4.9, by = 0.1)) * 10 + 50
+        ),
+        group = rep(c("A", "B"), each = 50)
+    )
+    df <- create_mnirs_data(
+        df,
+        nirs_channels = "smo2",
+        time_channel = "time",
+        sample_rate = 10
+    )
+    grouped_df <- dplyr::group_by(df, group)
+
+    result <- analyse_kinetics(
+        grouped_df,
+        nirs_channels = "smo2",
+        method = "peak_slope",
+        width = list(A = 5, B = 7),
+        verbose = FALSE
+    )
+
+    ca <- result$channel_args
+    expect_equal(ca$width[ca$interval == "A"], 5)
+    expect_equal(ca$width[ca$interval == "B"], 7)
+    ## resolved widths drive the fit window per interval
+    diag <- result$diagnostics
+    expect_equal(diag$n_obs[diag$interval == "A"], 5L)
+    expect_equal(diag$n_obs[diag$interval == "B"], 7L)
+})
+
+test_that("analyse_kinetics nls models are built on the input channel names", {
+    set.seed(13)
+    t <- 0:119
+    ## one generator per nls method, each on the same `secs`/`hhb` columns
+    curves <- list(
+        monoexponential = monoexponential(t, 50, 80, 5, 5) + rnorm(120, 0, 0.5),
+        biexponential = biexponential(t, 70, 40, 5, 60, 40) +
+            rnorm(120, 0, 0.5),
+        exponential_drift = exponential_drift(t, 70, 40, 8, 0.2, 0.98) +
+            rnorm(120, 0, 0.3),
+        sigmoidal = logistic(t, 10, 100, 30, 4) + rnorm(120, 0, 2)
+    )
+    Map(\(.x, .method) {
+        df <- create_mnirs_data(
+            data.frame(secs = t, hhb = .x),
+            nirs_channels = "hhb",
+            time_channel = "secs",
+            sample_rate = 1,
+            interval_times = 0
+        )
+        result <- analyse_kinetics(
+            df,
+            nirs_channels = "hhb",
+            method = .method,
+            use_TD = FALSE,
+            verbose = FALSE
+        )
+        model <- result$model[[1L]]$hhb
+        expect_s3_class(model, "nls")
+        ## formula reads `hhb ~ SS<fn>(secs, ...)`, not internal names
+        fml <- stats::formula(model)
+        expect_identical(fml[[2L]], quote(hhb))
+        expect_identical(fml[[3L]][[2L]], quote(secs))
+        ## so predict() takes newdata named as the input time_channel
+        pred <- stats::predict(model, newdata = data.frame(secs = c(0, 10)))
+        expect_length(pred, 2L)
+        expect_true(all(is.finite(pred)))
+    }, curves, names(curves))
+})
+
+test_that("analyse_kinetics aliases channel names that collide with model parameters", {
+    set.seed(13)
+    ## < 100 samples so the plot overlay re-predicts on the model
+    t <- 0:59
+    ## `tau` response on a `TD` time base, as from recursive kinetics
+    df <- create_mnirs_data(
+        data.frame(TD = t, tau = monoexponential(t, 50, 80, 5, 5) + rnorm(60, 0, 0.5)),
+        nirs_channels = "tau",
+        time_channel = "TD",
+        sample_rate = 1,
+        interval_times = 0
+    )
+    expect_message(
+        result <- analyse_kinetics(
+            df,
+            nirs_channels = "tau",
+            method = "monoexponential"
+        ),
+        "collide with model parameters"
+    )
+    expect_no_message(
+        analyse_kinetics(df, nirs_channels = "tau", method = "monoexponential", verbose = FALSE)
+    )
+    ## coefficients keep the original channel name; the model formula
+    ## is aliased so predict() takes the aliased time name
+    expect_equal(result$coefficients$nirs_channels, "tau")
+    expect_true(all(is.finite(unlist(result$coefficients[c("A", "B", "tau")]))))
+    model <- result$model[[1L]]$tau
+    fml <- stats::formula(model)
+    expect_identical(fml[[2L]], quote(.tau))
+    expect_identical(fml[[3L]][[2L]], quote(.TD))
+    pred <- stats::predict(model, newdata = data.frame(.TD = c(0, 10)))
+    expect_true(all(is.finite(pred)))
+    ## smooth fitted overlay re-predicts on the aliased model
+    expect_no_error(ggplot2::ggplot_build(plot(result, fitted = TRUE)))
+})
+
+
+## model data embedding ==============================================
+test_that("analyse_kinetics models carry their fit data in the call", {
+    ## `nls()` stores `call$data` as the fitter's local symbol, so the
+    ## data frame is embedded for update()/confint()/insight::get_data()
+    fits <- list(
+        monoexponential = create_monoexp_data(),
+        exponential_drift = create_expdrift_data(),
+        sigmoidal = create_sigmoidal_data()
+    )
+    for (method in names(fits)) {
+        result <- analyse_kinetics(
+            fits[[method]],
+            nirs_channels = "smo2",
+            method = method,
+            verbose = FALSE
+        )
+        model <- result$model[[1L]]$smo2
+        fit_data <- eval(model$call$data, envir = baseenv())
+        expect_s3_class(fit_data, "data.frame")
+        expect_named(fit_data, c("smo2", "time"))
+        expect_equal(nrow(fit_data), length(stats::fitted(model)))
+        ## refits resolve from the call alone, outside the fitting frame
+        refit <- eval(
+            call("update", model),
+            envir = new.env(parent = globalenv())
+        )
+        expect_equal(coef(refit), coef(model))
+    }
+})
+
+test_that("analyse_kinetics monoexponential model supports confint()", {
+    ## profiling refits from the stored call; the TD hinge is non-smooth
+    ## and does not profile reliably, so the reduced model is used
+    result <- analyse_kinetics(
+        create_monoexp_data(),
+        nirs_channels = "smo2",
+        method = "monoexponential",
+        use_TD = FALSE,
+        verbose = FALSE
+    )
+    ci <- suppressWarnings(stats::confint(result$model[[1L]]$smo2))
+    expect_equal(rownames(ci), c("A", "B", "tau"))
+    expect_true(all(is.finite(ci)))
+})
+
+test_that("analyse_kinetics control reaches nls() and is recorded", {
+    result <- analyse_kinetics(
+        create_monoexp_data(),
+        nirs_channels = "smo2",
+        method = "monoexponential",
+        use_TD = FALSE,
+        control = list(maxiter = 200),
+        verbose = FALSE
+    )
+    ## nls() stores the resolved control in the model call
+    expect_equal(result$model[[1L]]$smo2$call$control$maxiter, 200)
+    expect_match(result$channel_args$control, "maxiter = 200")
+})
+
+test_that("analyse_kinetics control rejects unknown nls.control names", {
+    expect_error(
+        analyse_kinetics(
+            create_monoexp_data(),
+            nirs_channels = "smo2",
+            method = "monoexponential",
+            control = list(max_iter = 7),
+            verbose = FALSE
+        ),
+        "control"
+    )
+})
